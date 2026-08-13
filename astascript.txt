@@ -811,6 +811,88 @@ if IsLobbyLobby() then
 end
 
 -- ============================================================
+-- Auto Sell Cosmetics (Lobby Only)
+-- ============================================================
+if IsLobbyLobby() then
+    task.spawn(function()
+        while not Tabs.Session do task.wait(0.1) end
+        task.wait(0.4)
+
+        local SellGroup = Tabs.Session:AddRightGroupbox("Auto Sell Cosmetics")
+
+        local GET = game:GetService("ReplicatedStorage")
+            :WaitForChild("Assets")
+            :WaitForChild("Remotes")
+            :WaitForChild("GET")
+
+        local Cosmetics = {
+            "Altar Chains",
+            "Angel's Halo",
+            "Hardened Shield",
+            "Kitsune Mask"
+        }
+
+        local enabled = false
+        local repeatCount = 3
+        local sellDelay = 0.25
+
+        local function SellCosmetic(name)
+            pcall(function()
+                GET:InvokeServer(
+                    "S_Inventory",
+                    "Sell",
+                    name,
+                    1
+                )
+            end)
+        end
+
+        task.spawn(function()
+            while task.wait(0.5) do
+                if enabled then
+                    for _, name in ipairs(Cosmetics) do
+                        for i = 1, repeatCount do
+                            SellCosmetic(name)
+                            task.wait(sellDelay)
+                        end
+                    end
+                end
+            end
+        end)
+
+        SellGroup:AddToggle("AutoSellCosmetics", {
+            Text = "Auto Sell Cosmetics",
+            Default = false,
+            Callback = function(v)
+                enabled = v
+            end
+        })
+
+        SellGroup:AddSlider("AutoSellRepeat", {
+            Text = "Repeat Count",
+            Default = 3,
+            Min = 1,
+            Max = 10,
+            Rounding = 0,
+            Callback = function(v)
+                repeatCount = v
+            end
+        })
+
+        SellGroup:AddSlider("AutoSellDelay", {
+            Text = "Sell Delay",
+            Default = 0.25,
+            Min = 0.05,
+            Max = 2,
+            Rounding = 2,
+            Callback = function(v)
+                sellDelay = v
+            end
+        })
+    end)
+end
+
+-- ============================================================
 -- Auto Delete Perks (works in lobby without opening Equipment)
 -- ============================================================
 if IsLobbyLobby() then
