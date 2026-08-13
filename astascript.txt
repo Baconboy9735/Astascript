@@ -1,12 +1,36 @@
 -- Only wait for Roblox/player basics
-repeat task.wait() until game:IsLoaded()
+-- Fast double boot check (prevents rare failed executions)
+local bootAttempts = 0
+while not game:IsLoaded() and bootAttempts < 2 do
+    bootAttempts += 1
+    task.wait(0.25)
+end
+
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
 
 local Players = game:GetService("Players")
-local player = Players.LocalPlayer
+local player
 
-repeat task.wait() until player
+for i = 1, 2 do
+    player = Players.LocalPlayer
+    if player then break end
+    task.wait(0.25)
+end
+
+if not player then
+    repeat task.wait() player = Players.LocalPlayer until player
+end
 
 local PlayerGui = player:WaitForChild("PlayerGui")
+
+-- second readiness verification without delaying startup
+task.defer(function()
+    if not game:IsLoaded() then
+        game.Loaded:Wait()
+    end
+end)
 
 -- Lobby-only loader (only runs checks in lobby place)
 _G.LobbyUILoaded = false
