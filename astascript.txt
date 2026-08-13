@@ -11366,6 +11366,42 @@ if IsIngameLobby() and Tabs.Webhook then
                             end
                         end
 
+                                                -- Shadow Ban Status (Lobby/Main Menu only)
+                                                local function IsInMission()
+                                                    local player = game:GetService("Players").LocalPlayer
+
+                                                    if player:GetAttribute("InMission") == true then
+                                                        return true
+                                                    end
+
+                                                    if player:GetAttribute("Mission") == true then
+                                                        return true
+                                                    end
+
+                                                    return false
+                                                end
+
+                                                local function GetShadowBanStatus()
+                                                    local player = game:GetService("Players").LocalPlayer
+
+                                                    if player:GetAttribute("Blacklisted") == true then
+                                                        return "SHADOW BANNED"
+                                                    end
+
+                                                    if player:GetAttribute("Exploiter") == true then
+                                                        return "SHADOW BANNED"
+                                                    end
+
+                                                    return "SAFE"
+                                                end
+
+                                                if not IsInMission() then
+                                                    table.insert(
+                                                        parts,
+                                                        "Shadow Ban: " .. GetShadowBanStatus()
+                                                    )
+                                                end
+
                                                 local description = table.concat(parts, "  ")
 
                         if _G and _G.Horst_SetDescription then
