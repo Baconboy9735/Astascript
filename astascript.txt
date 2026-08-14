@@ -893,7 +893,7 @@ if IsLobbyLobby() then
 end
 
 -- ============================================================
--- Auto Delete Perks (works in lobby without opening Equipment)
+-- Auto Delete Perks (Batch - One Remote)
 -- ============================================================
 if IsLobbyLobby() then
     task.spawn(function()
@@ -944,259 +944,63 @@ if IsLobbyLobby() then
             Common = true,
             Rare = true,
             Epic = false,
-            Legendary = false,
+            Legendary = true,
             Secret = false,
         }
 
-        local deleteDelay = 0.2
+        local deleteDelay = 0.15
         local autoEnabled = false
-        local autoInterval = 15
+        local autoInterval = 20
         local isDeleting = false
+        local maxPerBatch = 25
 
         local function resolveRarity(perkName)
-            if not perkName or perkName == "" then return nil end
+            if not perkName or perkName == "" then return "Common" end
             if NameToRarity[perkName] then return NameToRarity[perkName] end
             local lower = string.lower(perkName)
             if NameToRarity[lower] then return NameToRarity[lower] end
-            -- partial match fallback
-            for name, rarity in pairs(NameToRarity) do
-                if type(name) == "string" and #name > 3 then
-                    if lower:find(string.lower(name), 1, true) or string.lower(name):find(lower, 1, true) then
-                        return rarity
-                    end
-                end
-            end
-            return nil
-        end
-
-        local function extractPerkName(instanceName)
-            if not instanceName then return nil end
-            -- K_800_PerkName
-            local n = instanceName:match("^K_%d+_(.+)$")
-            if n then return n end
-            -- K_PerkName
-            n = instanceName:match("^K_(.+)$")
-            if n and not tonumber(n:match("^%d+")) then return n end
-            -- trailing after last underscore if looks like perk
-            n = instanceName:match("_(%a[%w%s%-%']+)$")
-            if n then return n end
-            return instanceName
-        end
-
-        local function getId(obj)
-            if not obj then return nil end
-            local id = obj:GetAttribute("ID") or obj:GetAttribute("Id") or obj:GetAttribute("id")
-                or obj:GetAttribute("UUID") or obj:GetAttribute("Uuid")
-            if id then return tostring(id) end
-            return nil
-        end
-
-        -- Try server remotes that may return perk lists with UUIDs
-        local function collectFromRemotes()
-            local found = {}
-            local seen = {}
-
-            local function add(id, name)
-                if not id or seen[tostring(id)] then return end
-                local perkName = type(name) == "string" and name or tostring(name or "")
-                perkName = extractPerkName(perkName) or perkName
-                local rarity = resolveRarity(perkName)
-                if rarity then
-                    seen[tostring(id)] = true
-                    table.insert(found, { id = tostring(id), name = perkName, rarity = rarity })
-                end
-            end
-
-            local function walk(tbl, depth)
-                if depth > 10 or type(tbl) ~= "table" then return end
-                local name = tbl.Name or tbl.Perk or tbl.Title or tbl.PerkName or tbl.Item or tbl.DisplayName
-                local id = tbl.ID or tbl.Id or tbl.UUID or tbl.Uuid or tbl.id or tbl.Uid
-                if (type(name) == "string" or type(name) == "number") and id then
-                    add(id, tostring(name))
-                end
-                for k, v in pairs(tbl) do
-                    if type(v) == "table" then
-                        walk(v, depth + 1)
-                    elseif type(k) == "string" and type(v) == "string" then
-                        if resolveRarity(v) and #k >= 8 then
-                            add(k, v)
-                        elseif resolveRarity(k) and #v >= 8 then
-                            add(v, k)
-                        elseif resolveRarity(extractPerkName(v) or "") and #k >= 8 then
-                            add(k, v)
-                        end
-                    end
-                end
-            end
-
-            local attempts = {
-                function() return GET:InvokeServer("S_Equipment", "Perks") end,
-                function() return GET:InvokeServer("S_Equipment", "Get", "Perk") end,
-                function() return GET:InvokeServer("S_Equipment", "List", "Perk") end,
-                function() return GET:InvokeServer("S_Equipment", "Data") end,
-                function() return GET:InvokeServer("S_Equipment", "Inventory") end,
-                function() return GET:InvokeServer("S_Equipment", "Talents") end,
-                function() return GET:InvokeServer("Data", "Copy") end,
-            }
-
-            for _, fn in ipairs(attempts) do
-                local ok, result = pcall(fn)
-                if ok and result ~= nil then
-                    if type(result) == "table" then
-                        walk(result, 0)
-                    end
-                end
-                if #found > 0 then break end
-            end
-
-            return found
-        end
-
-        -- Silently load Equipment GUI in background so Items populate, then read IDs
-        local function silentLoadEquipmentGui()
-            local restored = {}
-
-            local function show(obj)
-                if not obj then return end
-                pcall(function()
-                    if obj:IsA("ScreenGui") then
-                        restored[#restored+1] = { obj = obj, key = "Enabled", val = obj.Enabled }
-                        obj.Enabled = true
-                    elseif obj:IsA("GuiObject") then
-                        restored[#restored+1] = { obj = obj, key = "Visible", val = obj.Visible }
-                        obj.Visible = true
-                    end
-                end)
-            end
-
-            pcall(function()
-                local pg = Player.PlayerGui
-                local interface = pg:FindFirstChild("Interface")
-                if not interface then return end
-                show(interface)
-                local equipment = interface:FindFirstChild("Equipment")
-                if equipment then
-                    show(equipment)
-                    local perkList = equipment:FindFirstChild("Perk_List")
-                    if perkList then
-                        show(perkList)
-                        local holder = perkList:FindFirstChild("Holder")
-                        if holder then show(holder) end
-                    end
-                end
-            end)
-
-            -- some games need a remote touch to populate the list
-            pcall(function() GET:InvokeServer("S_Equipment", "Perks") end)
-            pcall(function() GET:InvokeServer("S_Equipment", "Talents") end)
-
-            -- wait for Items to fill
-            local items = nil
-            local t0 = tick()
-            while tick() - t0 < 2.5 do
-                local ok, folder = pcall(function()
-                    return Player.PlayerGui.Interface.Equipment.Perk_List.Holder.Items
-                end)
-                if ok and folder and #folder:GetChildren() > 0 then
-                    items = folder
-                    break
-                end
-                task.wait(0.15)
-            end
-
-            return items, restored
-        end
-
-        local function restoreGui(restored)
-            for i = #restored, 1, -1 do
-                local e = restored[i]
-                pcall(function()
-                    if e.key == "Enabled" then
-                        e.obj.Enabled = e.val
-                    else
-                        e.obj.Visible = e.val
-                    end
-                end)
-            end
-        end
-
-        local function collectFromGuiFolder(itemsFolder)
-            local found = {}
-            local seen = {}
-            if not itemsFolder then return found end
-
-            for _, obj in ipairs(itemsFolder:GetChildren()) do
-                local id = getId(obj)
-                if id and not seen[id] then
-                    local perkName = extractPerkName(obj.Name)
-                    local rarity = resolveRarity(perkName)
-                    if rarity then
-                        seen[id] = true
-                        table.insert(found, { id = id, name = perkName, rarity = rarity })
-                    end
-                end
-            end
-
-            -- also scan descendants in case structure is nested
-            if #found == 0 then
-                for _, obj in ipairs(itemsFolder:GetDescendants()) do
-                    local id = getId(obj)
-                    if id and not seen[id] then
-                        local perkName = extractPerkName(obj.Name)
-                        local rarity = resolveRarity(perkName)
-                        if rarity then
-                            seen[id] = true
-                            table.insert(found, { id = id, name = perkName, rarity = rarity })
-                        end
-                    end
-                end
-            end
-            return found
+            return "Common"
         end
 
         local function collectAllPerks()
-            -- 1) Server remotes / Data.Copy first (no UI)
-            local list = collectFromRemotes()
-            if #list > 0 then return list, "remote" end
+            local found = {}
+            local seen = {}
 
-            -- 2) Already-loaded GUI path
-            local ok, folder = pcall(function()
-                return Player.PlayerGui.Interface.Equipment.Perk_List.Holder.Items
+            local ok, data = pcall(function()
+                return GET:InvokeServer("S_Equipment", "Talents")
             end)
-            if ok and folder and #folder:GetChildren() > 0 then
-                list = collectFromGuiFolder(folder)
-                if #list > 0 then return list, "gui" end
-            end
 
-            -- 3) Silent background load of Equipment UI, read, restore
-            local items, restored = silentLoadEquipmentGui()
-            list = collectFromGuiFolder(items)
-            if #list == 0 then
-                -- deep scan after silent open
-                pcall(function()
-                    for _, obj in ipairs(Player.PlayerGui:GetDescendants()) do
-                        if type(obj.Name) == "string" and obj.Name:match("^K_%d+_") then
-                            local id = getId(obj)
-                            if id then
-                                local perkName = extractPerkName(obj.Name)
-                                local rarity = resolveRarity(perkName)
-                                if rarity then
-                                    table.insert(list, { id = id, name = perkName, rarity = rarity })
-                                end
+            if ok and type(data) == "table" then
+                local storage = data.Slots
+                    and data.Slots.A
+                    and data.Slots.A.Perks
+                    and data.Slots.A.Perks.Storage
+
+                if type(storage) == "table" then
+                    for uid, info in pairs(storage) do
+                        if type(uid) == "string" and #uid > 20 and not seen[uid] then
+                            local name = "Unknown"
+                            if type(info) == "table" then
+                                name = info.Name or info.Perk or info.Title or "Unknown"
                             end
+                            seen[uid] = true
+                            table.insert(found, {
+                                id = uid,
+                                name = tostring(name),
+                                rarity = resolveRarity(tostring(name))
+                            })
                         end
                     end
-                end)
+                end
             end
-            restoreGui(restored or {})
 
-            if #list > 0 then return list, "silent-gui" end
-            return {}, "none"
+            return found
         end
 
-        local function deletePerk(id, name)
+        local function deleteBatch(ids)
+            if #ids == 0 then return false end
             local ok = pcall(function()
-                GET:InvokeServer("S_Equipment", "Delete", "Perk", { id })
+                GET:InvokeServer("S_Equipment", "Delete", "Perk", ids)
             end)
             return ok
         end
@@ -1205,31 +1009,58 @@ if IsLobbyLobby() then
             if isDeleting then return end
             isDeleting = true
 
-            local list, source = collectAllPerks()
+            local list = collectAllPerks()
 
             if #list == 0 then
                 if not silent then
-                    Library:Notify("No perks found — try once in Equipment, or capture list remote", 4)
+                    Library:Notify("No perks found", 3)
                 end
                 isDeleting = false
                 return
             end
 
-            local deleted, skipped = 0, 0
+            local toDelete = {}
             for _, entry in ipairs(list) do
                 if targetRarities[entry.rarity] then
-                    if deletePerk(entry.id, entry.name) then
-                        deleted = deleted + 1
-                        task.wait(deleteDelay)
-                    end
-                else
-                    skipped = skipped + 1
+                    table.insert(toDelete, entry.id)
                 end
             end
 
-            if deleted > 0 or not silent then
-                Library:Notify(string.format("Deleted %d | Skipped %d (%s)", deleted, skipped, source), 3)
+            if #toDelete == 0 then
+                if not silent then
+                    Library:Notify("No matching rarities to delete", 3)
+                end
+                isDeleting = false
+                return
             end
+
+            local deleted = 0
+
+            for i = 1, #toDelete, maxPerBatch do
+                local batch = {}
+                for j = i, math.min(i + maxPerBatch - 1, #toDelete) do
+                    table.insert(batch, toDelete[j])
+                end
+
+                if deleteBatch(batch) then
+                    deleted = deleted + #batch
+                else
+                    for _, id in ipairs(batch) do
+                        pcall(function()
+                            GET:InvokeServer("S_Equipment", "Delete", "Perk", {id})
+                        end)
+                        deleted = deleted + 1
+                        task.wait(0.12)
+                    end
+                end
+
+                task.wait(deleteDelay)
+            end
+
+            if deleted > 0 or not silent then
+                Library:Notify(string.format("Deleted %d perks (batch)", deleted), 3)
+            end
+
             isDeleting = false
         end
 
@@ -1251,7 +1082,7 @@ if IsLobbyLobby() then
         })
         PerkGroup:AddToggle("PerkDel_Legendary", {
             Text = "Delete Legendary",
-            Default = false,
+            Default = true,
             Callback = function(v) targetRarities.Legendary = v end
         })
         PerkGroup:AddToggle("PerkDel_Secret", {
@@ -1263,8 +1094,8 @@ if IsLobbyLobby() then
         PerkGroup:AddDivider()
 
         PerkGroup:AddSlider("PerkDel_Delay", {
-            Text = "Delete Delay",
-            Default = 0.2,
+            Text = "Batch Delay",
+            Default = 0.15,
             Min = 0.05,
             Max = 1,
             Rounding = 2,
@@ -1274,7 +1105,7 @@ if IsLobbyLobby() then
 
         PerkGroup:AddSlider("PerkDel_Interval", {
             Text = "Auto Interval",
-            Default = 15,
+            Default = 20,
             Min = 5,
             Max = 120,
             Rounding = 0,
@@ -1309,7 +1140,7 @@ if IsLobbyLobby() then
             task.spawn(function() runDeletePerks(false) end)
         end)
 
-        PerkGroup:AddLabel("Auto loads perks in background — stay in lobby.")
+        PerkGroup:AddLabel("Uses batch delete (one remote)")
     end)
 end
 
@@ -6793,20 +6624,90 @@ if IsLobbyLobby() then
 
     local MAX_LEVEL_FOR_PRESTIGE = {100, 125, 150, 175, 200}
 
-    local AllTalents = {
-        "Crescendo", "Blitzblade", "Swiftshot", "Surgeshot",
-        "Stalwart", "Stormcharged",
-        "Quakestrike", "Furyforge", "Assassin", "Amputation", "Marksman",
-        "Overslash", "Gambler", "Afterimages",
-        "Guardian", "Deflectra",
-        "Aegisurge", "Riposte",
-        "Resilience", "Vengeflare", "Steel Frame",
-        "Necromantic", "Thanatophobia",
-        "Cooldown Blitz", "Mendmaster",
-        "Lifefeed", "Vitalize", "Gem Fiend",
-        "Omnirange", "Flashstep", "Tactician",
-        "Bloodthief", "Apotheosis"
+    -- REAL talent IDs from ReplicatedStorage.Modules.Storage.Memories
+    local TalentIdToName = {
+        -- Offense
+        [1] = "Blitzblade",
+        [2] = "Crescendo",
+        [3] = "Swiftshot",
+        [30] = "Surgeshot",
+        [4] = "Stalwart",
+        [18] = "Stormcharged",
+        [5] = "Furyforge",
+        [6] = "Quakestrike",
+        [19] = "Assassin",
+        [20] = "Amputation",
+        [31] = "Supernova",
+        [21] = "Gambler",
+        [29] = "Overslash",
+        [32] = "Afterimages",
+        -- Defense
+        [7] = "Guardian",
+        [8] = "Deflectra",
+        [9] = "Aegisurge",
+        [22] = "Riposte",
+        [10] = "Vengeflare",
+        [11] = "Resilience",
+        [33] = "Steel Frame",
+        [23] = "Necromantic",
+        [24] = "Thanatophobia",
+        -- Support
+        [12] = "Mendmaster",
+        [13] = "Cooldown Blitz",
+        [14] = "Lifefeed",
+        [15] = "Vitalize",
+        [26] = "Gem Fiend",
+        [16] = "Flashstep",
+        [17] = "Omnirange",
+        [25] = "Tactician",
+        [27] = "Apotheosis",
+        [28] = "Bloodthief",
     }
+
+    -- also load live from module (stays correct if game adds talents)
+    pcall(function()
+        local mem = require(game:GetService("ReplicatedStorage").Modules.Storage.Memories)
+        if type(mem) == "table" and type(mem.Talents) == "table" then
+            for _, cat in pairs(mem.Talents) do
+                if type(cat) == "table" then
+                    for id, data in pairs(cat) do
+                        if type(data) == "table" and type(data.Tag) == "string" then
+                            local n = tonumber(id) or id
+                            TalentIdToName[n] = data.Tag
+                            TalentIdToName[tostring(id)] = data.Tag
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- string keys for every numeric entry
+    for k, v in pairs(table.clone and table.clone(TalentIdToName) or TalentIdToName) do
+        if type(k) == "number" then
+            TalentIdToName[tostring(k)] = v
+        end
+    end
+    -- safe string-key fill without table.clone dependency
+    do
+        local extra = {}
+        for k, v in pairs(TalentIdToName) do
+            if type(k) == "number" then extra[tostring(k)] = v end
+        end
+        for k, v in pairs(extra) do TalentIdToName[k] = v end
+    end
+
+    local AllTalents = {}
+    local TalentByIndex = {} -- name lower -> name
+    for id, name in pairs(TalentIdToName) do
+        if type(id) == "number" then
+            table.insert(AllTalents, name)
+            TalentByIndex[string.lower(name)] = name
+            TalentByIndex[id] = name
+            TalentByIndex[tostring(id)] = name
+        end
+    end
+    table.sort(AllTalents)
 
     local RemainingTalents = {}
     local function resetTalentPool()
@@ -6823,8 +6724,15 @@ if IsLobbyLobby() then
         return talent
     end
 
-    local PrestigeCooldown = 0.3
+    local PrestigeCooldown = 8
     local PrestigeRunning = false
+    local lastPrestigeAttempt = 0
+    local MIN_PRESTIGE_GAP = 12 -- hard min seconds between prestige remotes
+    local lastProbedTalents = {} -- names from last successful Probe / fetch
+    local lastProbedIds = {}     -- raw ids "26","1","12"
+    local lastProbedTime = 0
+    -- Send talent as ID (default) — names can be wrong vs game IDs and drain scrolls
+    getgenv().PrestigeSendAs = getgenv().PrestigeSendAs or "Name"
 
         local lastGoldNotifyStep = -1
     local lastGoldNotifyStatus = nil
@@ -6986,17 +6894,23 @@ if IsLobbyLobby() then
     })
 
     PrestigeGroup:AddDropdown("BoostDropdown", { 
-        Values = {"Luck Boost","Exp Boost","Gold Boost"}, 
+        Values = {"Luck Boost","EXP Boost","Gold Boost"}, 
         Default = getgenv().SelectedBoost, 
         Text = "Boost", 
         Callback = function(v) getgenv().SelectedBoost = v end 
     })
+    PrestigeGroup:AddDropdown("PrestigeSendAsDropdown", {
+        Values = {"Name", "ID"},
+        Default = getgenv().PrestigeSendAs or "Name",
+        Text = "Send talent as",
+        Callback = function(v) getgenv().PrestigeSendAs = v end
+    })
     PrestigeGroup:AddSlider("PrestigeCooldownSlider", { 
-        Text = "Delay", 
+        Text = "Delay (min 12s enforced)", 
         Default = PrestigeCooldown, 
-        Min = 0.2, 
-        Max = 2, 
-        Rounding = 1, 
+        Min = 8, 
+        Max = 30, 
+        Rounding = 0, 
         Suffix = "s", 
         Callback = function(v) PrestigeCooldown = v end 
     })
@@ -7092,38 +7006,110 @@ if IsLobbyLobby() then
 
         notifyStatus("ok", currentPrestige, currentLevel, currentXP, currentGold, true)
 
-        local talent = getRandomTalent()
-        if not talent then
-            resetTalentPool()
-            talent = getRandomTalent()
-            if not talent then
-                Library:Notify("No talent left for prestige", 3)
-                return false
-            end
+        -- Hard rate-limit: never spam Prestige remote
+        local now = tick()
+        if not force and (now - lastPrestigeAttempt) < MIN_PRESTIGE_GAP then
+            return false
         end
 
         local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
-        pcall(function() Event:InvokeServer("S_Equipment", "Talents") end)
-        task.wait(0.35)
+
+        ----------------------------------------------------------------
+        local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
+
+        -- Fetch Next_Talents ids and map via Memories TalentIdToName
+        local function fetchNextTalentIds()
+            local ids = {}
+            local ok, res = pcall(function()
+                return Event:InvokeServer("S_Equipment", "Talents")
+            end)
+            if not ok or type(res) ~= "table" or type(res.Slots) ~= "table" then return ids end
+            local key = res.Current_Slot or res.CurrentSlot or "A"
+            local slot = res.Slots[key] or res.Slots["A"]
+            local nextT = slot and slot.Next_Talents
+            if type(nextT) ~= "table" then return ids end
+            for _, id in pairs(nextT) do
+                table.insert(ids, tostring(id))
+            end
+            return ids
+        end
+
+        local nextIds = fetchNextTalentIds()
+        if #nextIds == 0 and #lastProbedIds > 0 and (tick() - lastProbedTime) < 90 then
+            for _, id in ipairs(lastProbedIds) do table.insert(nextIds, id) end
+        end
+        if #nextIds == 0 then
+            Library:Notify("No Next_Talents from server", 5)
+            return false
+        end
+
+        lastProbedIds = {}
+        for _, id in ipairs(nextIds) do table.insert(lastProbedIds, id) end
+        lastProbedTime = tick()
+
+        local parts = {}
+        local talentName = nil
+        for _, id in ipairs(nextIds) do
+            local nm = TalentIdToName[tonumber(id)] or TalentIdToName[id] or TalentIdToName[tostring(id)]
+            table.insert(parts, nm and (id .. "=" .. nm) or (id .. "=?"))
+            if not talentName and nm then
+                talentName = nm
+            end
+        end
+        Library:Notify("Next_Talents: " .. table.concat(parts, ", "), 5)
+        print("[Prestige] Next_Talents:", table.concat(parts, ", "))
+
+        if not talentName then
+            Library:Notify("Unknown talent ids [" .. table.concat(nextIds, ",") .. "] — not sending", 6)
+            return false
+        end
+
+        local boostArg = getgenv().SelectedBoost or "Gold Boost"
+        -- Cobalt: Boosts = "Gold Boost", Talents = "Furyforge"
+        lastPrestigeAttempt = tick()
+        task.wait(0.25)
 
         local ok, err = pcall(function()
             Event:InvokeServer("S_Equipment", "Prestige", {
-                Boosts = getgenv().SelectedBoost,
-                Talents = talent
+                Boosts = boostArg,
+                Talents = talentName,
             })
         end)
 
-        if ok then
-            Library:Notify(string.format("🚀 Prestige sent! Talent: %s | Boost: %s", tostring(talent), tostring(getgenv().SelectedBoost)), 5)
-            slotCache.time = 0 -- invalidate so next check is fresh
+        if not ok then
+            Library:Notify("Prestige remote error: " .. tostring(err), 5)
+            return false
+        end
+
+        Library:Notify(string.format("Prestige sent once → %s | %s (waiting...)", talentName, boostArg), 5)
+
+        -- Verify prestige actually increased
+        task.wait(2.5)
+        slotCache.time = 0
+        getSlotData(true)
+        local after = getCurrentPrestige()
+        if after > currentPrestige then
+            Library:Notify(string.format("✅ Prestige success P%d → P%d", currentPrestige, after), 5)
+            if after >= 5 and getgenv().PrestigeEnabled then
+                getgenv().PrestigeEnabled = false
+                pcall(function()
+                    if Options and Options.PrestigeToggle then Options.PrestigeToggle:SetValue(false) end
+                end)
+            end
         else
-            Library:Notify("Prestige remote failed: " .. tostring(err), 5)
+            Library:Notify(string.format("⚠️ Prestige did not apply (still P%d). Stopping auto to save scrolls.", after), 6)
+            if getgenv().PrestigeEnabled then
+                getgenv().PrestigeEnabled = false
+                pcall(function()
+                    if Options and Options.PrestigeToggle then Options.PrestigeToggle:SetValue(false) end
+                end)
+            end
         end
 
         lastStatusReason = nil
         lastGoldNotifyStep = -1
         lastGoldNotifyStatus = nil
-        return ok
+        return after > currentPrestige
     end
 
     PrestigeGroup:AddButton("Check Prestige Status", function()
@@ -7139,8 +7125,45 @@ if IsLobbyLobby() then
         end)
     end)
 
+    PrestigeGroup:AddButton("Probe Next_Talents", function()
+        task.spawn(function()
+            local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
+            local ok, res = pcall(function()
+                return Event:InvokeServer("S_Equipment", "Talents")
+            end)
+            if not ok or type(res) ~= "table" then
+                Library:Notify("Talents fetch failed", 4)
+                return
+            end
+            local key = res.Current_Slot or "A"
+            local slot = res.Slots and (res.Slots[key] or res.Slots["A"])
+            local nextT = slot and slot.Next_Talents
+            local owned = slot and slot.Talents
+            local function resolveList(arr)
+                local parts = {}
+                if type(arr) ~= "table" then return "?" end
+                for _, id in pairs(arr) do
+                    local nm = TalentIdToName[tonumber(id)] or TalentIdToName[tostring(id)]
+                    table.insert(parts, nm and (tostring(id) .. "=" .. nm) or (tostring(id) .. "=?"))
+                end
+                return table.concat(parts, ", ")
+            end
+            local nextStr = resolveList(nextT)
+            local ownedStr = resolveList(owned)
+            print("[Probe] Next_Talents:", nextStr)
+            print("[Probe] Owned:", ownedStr)
+            Library:Notify("Next: " .. nextStr, 8)
+            Library:Notify("Owned: " .. ownedStr, 6)
+            lastProbedIds = {}
+            if type(nextT) == "table" then
+                for _, id in pairs(nextT) do table.insert(lastProbedIds, tostring(id)) end
+                lastProbedTime = tick()
+            end
+        end)
+    end)
+
     PrestigeGroup:AddButton("Force Prestige Now", function()
-        Library:Notify("Forcing prestige...", 2)
+        Library:Notify("Forcing prestige (1 attempt)...", 2)
         task.spawn(function()
             doPrestige(true)
         end)
@@ -7160,8 +7183,8 @@ if IsLobbyLobby() then
                 PrestigeRunning = false
             end
 
-            -- Don't poll faster than cache TTL; default cooldown still applies
-            local waitTime = math.max(PrestigeCooldown or 0.3, 1.0)
+            -- slow loop: never faster than 12s hard gap
+            local waitTime = math.max(PrestigeCooldown or 8, MIN_PRESTIGE_GAP)
             task.wait(waitTime)
         end
     end)
