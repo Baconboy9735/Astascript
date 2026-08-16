@@ -1,35 +1,49 @@
--- Only wait for Roblox/player basics
--- Fast double boot check (prevents rare failed executions)
-local bootAttempts = 0
-while not game:IsLoaded() and bootAttempts < 2 do
-    bootAttempts += 1
-    task.wait(0.25)
-end
+-- ============================================================
+-- ULTRA-FAST BOOT
+-- Mission = minimal waits | Lobby = normal waits
+-- ============================================================
+local MAIN_MENU_ID_BOOT = 13379208636
+local LOBBY_ID_BOOT = 14916516914
+local TRADE_ID_BOOT = 14932214603
+local _pid = game.PlaceId
+local IS_MISSION_BOOT = (_pid ~= LOBBY_ID_BOOT and _pid ~= TRADE_ID_BOOT and _pid ~= MAIN_MENU_ID_BOOT)
 
 if not game:IsLoaded() then
-    game.Loaded:Wait()
+    if IS_MISSION_BOOT then
+        -- mission: don't spin long
+        local t = tick()
+        while not game:IsLoaded() and (tick() - t) < 2 do task.wait() end
+        if not game:IsLoaded() then game.Loaded:Wait() end
+    else
+        local bootAttempts = 0
+        while not game:IsLoaded() and bootAttempts < 2 do
+            bootAttempts += 1
+            task.wait(0.25)
+        end
+        if not game:IsLoaded() then game.Loaded:Wait() end
+    end
 end
 
 local Players = game:GetService("Players")
-local player
-
-for i = 1, 2 do
-    player = Players.LocalPlayer
-    if player then break end
-    task.wait(0.25)
-end
-
+local player = Players.LocalPlayer
 if not player then
-    repeat task.wait() player = Players.LocalPlayer until player
+    if IS_MISSION_BOOT then
+        local t = tick()
+        while not player and (tick() - t) < 2 do
+            player = Players.LocalPlayer
+            task.wait()
+        end
+    end
+    if not player then
+        repeat task.wait() player = Players.LocalPlayer until player
+    end
 end
 
-local PlayerGui = player:WaitForChild("PlayerGui")
+-- Mission: FindFirstChild first (no long WaitForChild block)
+local PlayerGui = player:FindFirstChild("PlayerGui") or player:WaitForChild("PlayerGui", IS_MISSION_BOOT and 2 or 10)
 
--- second readiness verification without delaying startup
 task.defer(function()
-    if not game:IsLoaded() then
-        game.Loaded:Wait()
-    end
+    if not game:IsLoaded() then game.Loaded:Wait() end
 end)
 
 -- Lobby-only loader (only runs checks in lobby place)
@@ -182,15 +196,18 @@ task.spawn(function()
 end)
 
 
-repeat task.wait() until game:IsLoaded()
-repeat task.wait() until game:GetService("Players").LocalPlayer
-repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+-- Already past boot above — only re-check if needed
+if not game:IsLoaded() then game.Loaded:Wait() end
+if not Players.LocalPlayer then
+    repeat task.wait() until Players.LocalPlayer
+end
+PlayerGui = Players.LocalPlayer:FindFirstChild("PlayerGui") or Players.LocalPlayer:WaitForChild("PlayerGui", 3)
 
--- Mission / non-lobby: don't block long. Lobby can wait for full Interface.
+-- Interface wait: LOBBY only long | MISSION almost instant
 do
     local pid = game.PlaceId
     local isLobbyPlace = (pid == 14916516914 or pid == 14932214603)
-    local pg = game:GetService("Players").LocalPlayer.PlayerGui
+    local pg = Players.LocalPlayer.PlayerGui
     if isLobbyPlace then
         local t0 = tick()
         while not pg:FindFirstChild("Interface") and (tick() - t0) < 30 do
@@ -198,12 +215,12 @@ do
         end
         task.wait(0.5)
     else
-        -- INSIDE MISSION / main menu: fast path
+        -- MISSION / main menu: max ~0.4s total, no settle sleep
         local t0 = tick()
-        while not pg:FindFirstChild("Interface") and (tick() - t0) < 5 do
-            task.wait(0.05)
+        while not pg:FindFirstChild("Interface") and (tick() - t0) < 0.4 do
+            task.wait()
         end
-        task.wait(0.1) -- minimal settle
+        -- zero settle — farm tabs can start immediately
     end
 end
 
@@ -240,11 +257,20 @@ pcall(function()
     UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 end)
 local Player = Players.LocalPlayer
-local PlayerGui = Player:WaitForChild("PlayerGui")
+local PlayerGui = Player:FindFirstChild("PlayerGui") or Player:WaitForChild("PlayerGui", 3)
 
-local Assets = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes")
-local POST = Assets:WaitForChild("POST")
-local GET = Assets:WaitForChild("GET")
+local Assets
+do
+    local a = ReplicatedStorage:FindFirstChild("Assets")
+    if a then
+        Assets = a:FindFirstChild("Remotes")
+    end
+    if not Assets then
+        Assets = ReplicatedStorage:WaitForChild("Assets", 5):WaitForChild("Remotes", 5)
+    end
+end
+local POST = Assets:FindFirstChild("POST") or Assets:WaitForChild("POST", 3)
+local GET = Assets:FindFirstChild("GET") or Assets:WaitForChild("GET", 3)
 
 local function SafeInvoke(remote, ...)
     local args = {...}
@@ -5904,6 +5930,404 @@ if IsLobbyLobby() then
     })
 end
 
+-- ============================================================
+-- Auto Skills Equip (Lobby / Equipment)
+-- ============================================================
+if IsLobbyLobby() then
+    task.spawn(function()
+        while not Tabs.Session do task.wait(0.1) end
+        task.wait(0.5)
+
+        local SkillsGroup = Tabs.Session:AddLeftGroupbox("Auto Skills Equip")
+
+        local skillSlots = {
+            [1] = "3",
+            [2] = "72",
+            [3] = "7",
+            [4] = "76",
+            [5] = "26",
+        }
+
+        local equipDelay = 0.5
+        local autoOnJoin = false
+        local isEquipping = false
+
+        local function getGETRemote()
+            local ok, remote = pcall(function()
+                return game:GetService("ReplicatedStorage")
+                    :WaitForChild("Assets", 5)
+                    :WaitForChild("Remotes", 5)
+                    :WaitForChild("GET", 5)
+            end)
+            if ok and remote then return remote end
+            if GET then return GET end
+            return nil
+        end
+
+        -- Persistent cache (file + getgenv) so re-executing script still SKIPs
+        local CACHE_FILE = "TownShip/skill_equip_cache_" .. tostring(Player.UserId) .. ".json"
+        local function loadSkillCache()
+            local cache = {}
+            pcall(function()
+                if isfile and isfile(CACHE_FILE) then
+                    local raw = readfile(CACHE_FILE)
+                    local data = game:GetService("HttpService"):JSONDecode(raw)
+                    if type(data) == "table" then
+                        for k, v in pairs(data) do
+                            local s = tonumber(k)
+                            if s and v then cache[s] = tostring(v) end
+                        end
+                    end
+                end
+            end)
+            if getgenv().TownShipSkillCacheV3 and type(getgenv().TownShipSkillCacheV3) == "table" then
+                for k, v in pairs(getgenv().TownShipSkillCacheV3) do
+                    cache[tonumber(k) or k] = tostring(v)
+                end
+            end
+            return cache
+        end
+        local function saveSkillCache(cache)
+            getgenv().TownShipSkillCacheV3 = cache
+            pcall(function()
+                if not isfolder("TownShip") then makefolder("TownShip") end
+                local out = {}
+                for k, v in pairs(cache) do out[tostring(k)] = tostring(v) end
+                writefile(CACHE_FILE, game:GetService("HttpService"):JSONEncode(out))
+            end)
+        end
+        local skillCache = loadSkillCache()
+
+        local function dumpKeys(tbl, prefix, depth)
+            depth = depth or 0
+            if depth > 2 or type(tbl) ~= "table" then return end
+            for k, v in pairs(tbl) do
+                local t = type(v)
+                print(string.format("[Skill Dump] %s%s = %s", prefix or "", tostring(k), t))
+                if t == "table" and depth < 2 then
+                    dumpKeys(v, (prefix or "") .. tostring(k) .. ".", depth + 1)
+                end
+            end
+        end
+
+        -- Skill_State is a TOGGLE. Calling again unequips.
+        local function getCurrentEquippedSkills()
+            local remote = getGETRemote()
+            local result = {}
+            -- Start from session cache (most reliable for our own equips)
+            for s, id in pairs(skillCache) do
+                result[s] = tostring(id)
+            end
+            if not remote then return result end
+
+            local ok, data = pcall(function()
+                return remote:InvokeServer("Data", "Copy")
+            end)
+            if ok and type(data) == "table" and data.Slots then
+                local slotKey = data.Current_Slot or "A"
+                local slotData = data.Slots[slotKey]
+                if type(slotData) == "table" then
+                    -- One-time structure dump to help find the real path
+                    if not getgenv().TownShipSkillDumpDone then
+                        getgenv().TownShipSkillDumpDone = true
+                        print("[Skill Dump] === slotData top keys ===")
+                        dumpKeys(slotData, "slot.", 0)
+                    end
+
+                    local function absorb(skillsTbl)
+                        if type(skillsTbl) ~= "table" then return false end
+                        local found = false
+                        for k, v in pairs(skillsTbl) do
+                            local slotNum = tonumber(k)
+                            local idVal = nil
+                            if type(v) == "table" then
+                                idVal = v.Id or v.ID or v.Skill or v.SkillId or v.Name or v[1]
+                            elseif type(v) == "number" or type(v) == "string" then
+                                idVal = v
+                            end
+                            if slotNum and idVal ~= nil and tostring(idVal) ~= "" and tostring(idVal) ~= "0" and tostring(idVal) ~= "nil" then
+                                result[slotNum] = tostring(idVal)
+                                skillCache[slotNum] = tostring(idVal)
+                                found = true
+                            end
+                        end
+                        return found
+                    end
+
+                    local candidates = {
+                        slotData.Skills,
+                        slotData.Skill,
+                        slotData.SkillSlots,
+                        slotData.EquippedSkills,
+                        slotData.Loadout and slotData.Loadout.Skills,
+                        slotData.Equipment and slotData.Equipment.Skills,
+                        slotData.Equipped and slotData.Equipped.Skills,
+                        slotData.Progression and slotData.Progression.Skills,
+                    }
+                    for _, c in ipairs(candidates) do
+                        if absorb(c) then break end
+                    end
+
+                    -- Deep scan any table under slot that looks like skill slots
+                    if not next(result) then
+                        for key, val in pairs(slotData) do
+                            if type(val) == "table" then
+                                local looksLikeSkills = false
+                                local count = 0
+                                for sk, sv in pairs(val) do
+                                    count = count + 1
+                                    if tonumber(sk) and count <= 8 then
+                                        looksLikeSkills = true
+                                    end
+                                end
+                                if looksLikeSkills and absorb(val) then
+                                    print("[Skill Equip] found skills under slotData." .. tostring(key))
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            local ok2, skillsData = pcall(function()
+                return remote:InvokeServer("S_Equipment", "Skills")
+            end)
+            if ok2 and type(skillsData) == "table" then
+                for k, v in pairs(skillsData) do
+                    local slotNum = tonumber(k)
+                    local idVal = type(v) == "table" and (v.Id or v.ID or v.Skill or v.SkillId) or v
+                    if slotNum and idVal ~= nil and tostring(idVal) ~= "" and tostring(idVal) ~= "0" then
+                        result[slotNum] = tostring(idVal)
+                        skillCache[slotNum] = tostring(idVal)
+                    end
+                end
+            end
+
+            print("[Skill Equip] known equipped:")
+            for s = 1, 5 do
+                print(string.format("  slot %d = %s", s, tostring(result[s] or skillCache[s])))
+            end
+            return result
+        end
+
+        local function EquipSkill(slot, id)
+            local remote = getGETRemote()
+            if not remote then
+                warn("[Skill Equip] GET remote not found")
+                Library:Notify("[Skill Equip] GET remote not found", 4)
+                return false, "no_remote"
+            end
+
+            local function isOk(res)
+                local t = type(res)
+                return t == "table" or res == true or res == 1
+            end
+
+            local function oneCall(tag)
+                local ok, res = pcall(function()
+                    return remote:InvokeServer("S_Equipment", "Skill_State", slot, tostring(id))
+                end)
+                print(string.format(
+                    "[Skill Equip] %s Slot=%s ID=%s ok=%s res=%s (type=%s)",
+                    tag, tostring(slot), tostring(id), tostring(ok), tostring(res), type(res)
+                ))
+                return ok, res
+            end
+
+            -- Up to 3 rounds. Each round: call once; if nil, call again (toggle recovery).
+            for round = 1, 3 do
+                local ok1, res1 = oneCall("R" .. round .. "#1")
+                if ok1 and isOk(res1) then
+                    return true, res1
+                end
+                if ok1 and res1 == nil then
+                    task.wait(0.2)
+                    local ok2, res2 = oneCall("R" .. round .. "#2")
+                    if ok2 and isOk(res2) then
+                        return true, res2
+                    end
+                end
+                if round < 3 then
+                    print(string.format("[Skill Equip] Slot %s round %d failed — retrying...", tostring(slot), round))
+                    task.wait(0.35)
+                end
+            end
+
+            print(string.format("[Skill Equip] Slot %s FAILED after 3 rounds", tostring(slot)))
+            return false, nil
+        end
+
+        local function runEquipAll(silent)
+            if isEquipping then
+                Library:Notify("Already equipping...", 2)
+                return
+            end
+            isEquipping = true
+
+            print("===== Auto Skills Equip START =====")
+            Library:Notify("Checking current skills...", 2)
+
+            local current = getCurrentEquippedSkills()
+            local successCount = 0
+            local skippedCount = 0
+            local failedCount = 0
+
+            for slot = 1, 5 do
+                local wantId = skillSlots[slot]
+                if wantId and wantId ~= "" then
+                    local haveId = (current[slot] and tostring(current[slot]))
+                        or (skillCache[slot] and tostring(skillCache[slot]))
+                        or nil
+
+                    if haveId and haveId == tostring(wantId) then
+                        -- Already correct — DO NOT call Skill_State (would unequip)
+                        skippedCount = skippedCount + 1
+                        print(string.format("[Skill Equip] Slot %d already %s — SKIP", slot, haveId))
+                        if not silent then
+                            Library:Notify(string.format("Slot %d already OK (%s)", slot, haveId), 2)
+                        end
+                    else
+                        if haveId then
+                            print(string.format("[Skill Equip] Slot %d has %s → want %s", slot, haveId, wantId))
+                        else
+                            print(string.format("[Skill Equip] Slot %d empty → want %s", slot, wantId))
+                        end
+
+                        local ok = EquipSkill(slot, wantId)
+                        if ok then
+                            successCount = successCount + 1
+                            current[slot] = tostring(wantId)
+                            skillCache[slot] = tostring(wantId)
+                            saveSkillCache(skillCache)
+                            if not silent then
+                                Library:Notify(string.format("Slot %d equipped (%s)", slot, wantId), 2)
+                            end
+                        else
+                            failedCount = failedCount + 1
+                            if not silent then
+                                Library:Notify(string.format("Slot %d FAILED (%s)", slot, wantId), 3)
+                            end
+                        end
+                        task.wait(equipDelay)
+                    end
+                end
+            end
+
+            local msg = string.format("equipped:%d skipped:%d failed:%d", successCount, skippedCount, failedCount)
+            print("===== Auto Skills Equip DONE | " .. msg .. " =====")
+            Library:Notify(msg, 4)
+            isEquipping = false
+        end
+
+        for i = 1, 5 do
+            SkillsGroup:AddInput("SkillSlot_" .. i, {
+                Text = "Slot " .. i .. " Skill ID",
+                Default = skillSlots[i] or "",
+                Numeric = false,
+                Finished = true,
+                Placeholder = "e.g. 3",
+                Callback = function(v)
+                    skillSlots[i] = tostring(v or ""):gsub("%s+", "")
+                end
+            })
+        end
+
+        SkillsGroup:AddDivider()
+
+        SkillsGroup:AddSlider("SkillEquip_Delay", {
+            Text = "Delay between slots",
+            Default = 0.5,
+            Min = 0.1,
+            Max = 3,
+            Rounding = 1,
+            Suffix = "s",
+            Callback = function(v)
+                equipDelay = v
+            end
+        })
+
+        SkillsGroup:AddToggle("SkillEquip_AutoOnJoin", {
+            Text = "Auto Equip on Lobby Join",
+            Default = false,
+            Callback = function(v)
+                autoOnJoin = v
+                if v then
+                    -- run immediately when user turns the toggle ON
+                    print("[Skill Equip] Auto toggle ON — running now")
+                    Library:Notify("Auto Equip ON — equipping now...", 2)
+                    task.spawn(function()
+                        local ok, err = pcall(function()
+                            runEquipAll(false)
+                        end)
+                        if not ok then
+                            warn("[Skill Equip] Auto error:", err)
+                            Library:Notify("Auto equip error: " .. tostring(err), 5)
+                        end
+                    end)
+                else
+                    Library:Notify("Auto Equip OFF", 2)
+                end
+            end
+        })
+
+        SkillsGroup:AddButton("Equip Skills Now", function()
+            print("[Skill Equip] Button pressed")
+            Library:Notify("Button pressed — starting...", 2)
+            task.spawn(function()
+                local ok, err = pcall(function()
+                    runEquipAll(false)
+                end)
+                if not ok then
+                    warn("[Skill Equip] Error:", err)
+                    Library:Notify("Equip error: " .. tostring(err), 5)
+                end
+            end)
+        end)
+
+        SkillsGroup:AddButton("Reset Equip Cache", function()
+            skillCache = {}
+            getgenv().TownShipSkillCacheV3 = {}
+            getgenv().TownShipSkillCacheV2 = nil
+            getgenv().TownShipSkillCache = nil
+            getgenv().TownShipSkillDumpDone = false
+            pcall(function()
+                if isfile and isfile(CACHE_FILE) then delfile(CACHE_FILE) end
+            end)
+            Library:Notify("Skill cache cleared — next equip will force all slots", 3)
+            print("[Skill Equip] cache cleared")
+        end)
+
+        SkillsGroup:AddLabel("Cache saves to file | 3 retries on fail")
+
+        -- If config reloads with Auto ON, equip once after lobby settles
+        task.defer(function()
+            task.wait(2.5)
+            pcall(function()
+                if Options and Options.SkillEquip_AutoOnJoin and Options.SkillEquip_AutoOnJoin.Value then
+                    autoOnJoin = true
+                end
+                for i = 1, 5 do
+                    local opt = Options and Options["SkillSlot_" .. i]
+                    if opt and opt.Value and tostring(opt.Value) ~= "" then
+                        skillSlots[i] = tostring(opt.Value):gsub("%s+", "")
+                    end
+                end
+                if Options and Options.SkillEquip_Delay then
+                    equipDelay = Options.SkillEquip_Delay.Value or equipDelay
+                end
+            end)
+
+            if autoOnJoin then
+                task.wait(1.5)
+                pcall(function()
+                    runEquipAll(true)
+                end)
+            end
+        end)
+    end)
+end
+
 if IsLobbyLobby() then
 
     local BoostGroup = Tabs.Lobby:AddRightGroupbox("Boost Selection")
@@ -7015,73 +7439,76 @@ if IsLobbyLobby() then
         local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
 
         ----------------------------------------------------------------
-        local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
-
-        -- Fetch Next_Talents ids and map via Memories TalentIdToName
-        local function fetchNextTalentIds()
-            local ids = {}
-            local ok, res = pcall(function()
+        -- Get talent name: check Functions/Data first (0 scrolls),
+        -- fallback to S_Equipment/Talents only if needed (1 scroll max)
+        local function getTalentName()
+            -- First: try Next_Talents from Data (no scroll cost)
+            local ok1, dataRes = pcall(function()
+                return Event:InvokeServer("Functions", "Data")
+            end)
+            if ok1 and type(dataRes) == "table" then
+                local slotKey = dataRes.Current_Slot or Player:GetAttribute("Slot") or "A"
+                local sl = dataRes.Slots and (dataRes.Slots[slotKey] or dataRes.Slots["A"])
+                local nt = sl and sl.Next_Talents
+                if type(nt) == "table" and nt[1] then
+                    local id = tostring(nt[1])
+                    local nm = TalentIdToName[tonumber(id)] or TalentIdToName[id]
+                    if nm then
+                        print("[Prestige] Next_Talents (0 scrolls): " .. nm)
+                        return nm, id
+                    end
+                end
+            end
+            -- Fallback: one Talents call (costs 1 scroll)
+            local ok2, _, talents = pcall(function()
                 return Event:InvokeServer("S_Equipment", "Talents")
             end)
-            if not ok or type(res) ~= "table" or type(res.Slots) ~= "table" then return ids end
-            local key = res.Current_Slot or res.CurrentSlot or "A"
-            local slot = res.Slots[key] or res.Slots["A"]
-            local nextT = slot and slot.Next_Talents
-            if type(nextT) ~= "table" then return ids end
-            for _, id in pairs(nextT) do
-                table.insert(ids, tostring(id))
+            if ok2 and type(talents) == "table" and talents[1] then
+                local id = tostring(talents[1])
+                local nm = TalentIdToName[tonumber(id)] or TalentIdToName[id]
+                if nm then
+                    print("[Prestige] Talents call (1 scroll): " .. nm)
+                    return nm, id
+                end
             end
-            return ids
+            return nil, nil
         end
 
-        local nextIds = fetchNextTalentIds()
-        if #nextIds == 0 and #lastProbedIds > 0 and (tick() - lastProbedTime) < 90 then
-            for _, id in ipairs(lastProbedIds) do table.insert(nextIds, id) end
-        end
-        if #nextIds == 0 then
-            Library:Notify("No Next_Talents from server", 5)
-            return false
-        end
-
-        lastProbedIds = {}
-        for _, id in ipairs(nextIds) do table.insert(lastProbedIds, id) end
-        lastProbedTime = tick()
-
-        local parts = {}
-        local talentName = nil
-        for _, id in ipairs(nextIds) do
-            local nm = TalentIdToName[tonumber(id)] or TalentIdToName[id] or TalentIdToName[tostring(id)]
-            table.insert(parts, nm and (id .. "=" .. nm) or (id .. "=?"))
-            if not talentName and nm then
-                talentName = nm
-            end
-        end
-        Library:Notify("Next_Talents: " .. table.concat(parts, ", "), 5)
-        print("[Prestige] Next_Talents:", table.concat(parts, ", "))
-
+        local talentName, talentId = getTalentName()
         if not talentName then
-            Library:Notify("Unknown talent ids [" .. table.concat(nextIds, ",") .. "] — not sending", 6)
+            Library:Notify("No talent available — skipping", 5)
             return false
         end
+
+        print("[Prestige] Talent: " .. talentName .. " (id=" .. tostring(talentId) .. ")")
+        Library:Notify("Talent: " .. talentName, 3)
 
         local boostArg = getgenv().SelectedBoost or "Gold Boost"
-        -- Cobalt: Boosts = "Gold Boost", Talents = "Furyforge"
         lastPrestigeAttempt = tick()
-        task.wait(0.25)
 
-        local ok, err = pcall(function()
-            Event:InvokeServer("S_Equipment", "Prestige", {
-                Boosts = boostArg,
-                Talents = talentName,
-            })
-        end)
+        -- Spam prestige with same talent until success (no extra scroll cost)
+        local prestigeSuccess = false
+        for attempt = 1, 30 do
+            if not getgenv().PrestigeEnabled and not force then break end
+            local ok, result = pcall(function()
+                return Event:InvokeServer("S_Equipment", "Prestige", {
+                    Boosts = boostArg,
+                    Talents = talentName,
+                })
+            end)
+            if ok and type(result) == "table" then
+                prestigeSuccess = true
+                break
+            end
+            task.wait(0.5)
+        end
 
-        if not ok then
-            Library:Notify("Prestige remote error: " .. tostring(err), 5)
+        if not prestigeSuccess then
+            Library:Notify("Prestige remote failed after 30 attempts", 5)
             return false
         end
 
-        Library:Notify(string.format("Prestige sent once → %s | %s (waiting...)", talentName, boostArg), 5)
+        Library:Notify(string.format("Prestige sent → %s | %s (waiting...)", talentName, boostArg), 5)
 
         -- Verify prestige actually increased
         task.wait(2.5)
