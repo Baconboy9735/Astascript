@@ -1,4 +1,60 @@
 -- ============================================================
+-- INSTANT LOCK (first lines — works all places, survives spam)
+-- ============================================================
+do
+    local g = getgenv()
+    local G = _G
+    local sh = (type(shared) == "table" and shared) or nil
+    local pid = game.PlaceId
+
+    local function guiOpen()
+        local ok, found = pcall(function()
+            local core = game:GetService("CoreGui")
+            for _, d in ipairs(core:GetDescendants()) do
+                if d:IsA("TextLabel") and type(d.Text) == "string" and d.Text:find("#Town Ship") then
+                    return true
+                end
+            end
+            return false
+        end)
+        return ok and found
+    end
+
+    local function samePlaceLock()
+        local place = (g and g.__TS1_place) or (G and G.__TS1_place)
+        return place == pid
+    end
+
+    -- تخطي فقط لو: نفس المكان + (علامة أو GUI مفتوح)
+    if samePlaceLock() and (guiOpen() or (g and g.__TS1) or (G and rawget(G, "__TS1"))) then
+        return
+    end
+
+    -- مكان جديد أو مفيش GUI → صفّر العلامات القديمة
+    if g then g.__TS1 = nil; g.__TS1_place = pid end
+    if G then G.__TS1 = nil; G.__TS1_place = pid end
+    if sh then sh.__TS1 = nil end
+    pcall(function()
+        local old = game:GetService("CoreGui"):FindFirstChild("TS1")
+        if old then old:Destroy() end
+    end)
+
+    -- اقفل فورًا (قبل أي yield)
+    if g then g.__TS1 = true; g.__TS1_place = pid end
+    if G then G.__TS1 = true; G.__TS1_place = pid end
+    if sh then sh.__TS1 = true end
+
+    pcall(function()
+        local f = Instance.new("Folder")
+        f.Name = "TS1"
+        f:SetAttribute("t", tick())
+        f:SetAttribute("place", pid)
+        f.Parent = game:GetService("CoreGui")
+        if g then g.__TS1_folder = f end
+    end)
+end
+
+-- ============================================================
 -- ULTRA-FAST BOOT
 -- Mission = minimal waits | Lobby = normal waits
 -- ============================================================
@@ -7,6 +63,53 @@ local LOBBY_ID_BOOT = 14916516914
 local TRADE_ID_BOOT = 14932214603
 local _pid = game.PlaceId
 local IS_MISSION_BOOT = (_pid ~= LOBBY_ID_BOOT and _pid ~= TRADE_ID_BOOT and _pid ~= MAIN_MENU_ID_BOOT)
+
+-- ===== قفل تنفيذ عام (Lobby/Menu/Trade/Mission + ضد السبام) =====
+-- CoreGui lock بيشتغل حتى لو getgenv مش مشترك بين executes
+do
+    local CoreGui = game:GetService("CoreGui")
+    local LOCK_NAME = "TS_ExecLock"
+
+    local function countTownShipGuis()
+        local n = 0
+        pcall(function()
+            for _, d in ipairs(CoreGui:GetDescendants()) do
+                if d:IsA("TextLabel") and type(d.Text) == "string" then
+                    if d.Text:find("#Town Ship") then
+                        n = n + 1
+                    end
+                end
+            end
+        end)
+        return n
+    end
+
+    local existing = CoreGui:FindFirstChild(LOCK_NAME)
+    if existing then
+        local age = tick() - (tonumber(existing:GetAttribute("t")) or 0)
+        -- قفل حديث (أقل من 90 ثانية) + في GUI أو booting → تخطي
+        if age < 90 then
+            warn("[TownShip] lock active — skip execute")
+            return
+        end
+        -- قفل قديم (بعد تليبور/تعليق) → امسحه
+        pcall(function() existing:Destroy() end)
+    end
+
+    -- لو في أكتر من شباك بالفعل (سبام سابق) نفضل متكررش
+    if countTownShipGuis() >= 1 and (getgenv()._ts_ok or getgenv()._ts_booting) then
+        warn("[TownShip] GUI already open — skip execute")
+        return
+    end
+
+    local lock = Instance.new("Folder")
+    lock.Name = LOCK_NAME
+    lock:SetAttribute("t", tick())
+    lock.Parent = CoreGui
+
+    getgenv()._ts_booting = true
+    getgenv()._ts_lock = lock
+end
 
 if not game:IsLoaded() then
     if IS_MISSION_BOOT then
@@ -302,6 +405,9 @@ end
 
 getgenv().SafeInvoke = SafeInvoke
 getgenv().SafeFire = SafeFire
+CreateFarmLoop = CreateFarmLoop or function() end
+CreateSpearFarmLoop = CreateSpearFarmLoop or function() end
+CleanupSmoothMovement = CleanupSmoothMovement or function() end
 
 local ErrorLog = {}
 local MaxLogEntries = 50
@@ -426,6 +532,48 @@ do
 end
 
 local Window = Library:CreateWindow({Title="#Town Ship", Center=true, AutoShow=true})
+getgenv()._ts_ok = true
+getgenv()._ts_booting = false
+getgenv()._ts_window = Window
+pcall(function()
+    local lock = getgenv()._ts_lock
+    if lock and lock.Parent then
+        lock:SetAttribute("t", tick())
+    end
+end)
+print("[TownShip] Loaded OK | PlaceId=" .. tostring(game.PlaceId))
+
+-- امسح أي شبابيك Town Ship زيادة (لو السبام عدّى القفل)
+task.defer(function()
+    pcall(function()
+        local ourHolder = Window and Window.Holder
+        local cores = {}
+        pcall(function() table.insert(cores, game:GetService("CoreGui")) end)
+        pcall(function() table.insert(cores, game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")) end)
+        for _, root in ipairs(cores) do
+            if not root then continue end
+            for _, sg in ipairs(root:GetChildren()) do
+                if sg:IsA("ScreenGui") then
+                    local hasTitle = false
+                    for _, d in ipairs(sg:GetDescendants()) do
+                        if d:IsA("TextLabel") and type(d.Text) == "string" and d.Text:find("#Town Ship") then
+                            hasTitle = true
+                            break
+                        end
+                    end
+                    if hasTitle then
+                        -- لو مش الشباك بتاعنا امسحه
+                        local isOurs = ourHolder and (sg == ourHolder or ourHolder:IsDescendantOf(sg) or sg:IsDescendantOf(ourHolder))
+                        if not isOurs then
+                            pcall(function() sg:Destroy() end)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end)
+
 
 local function isUIHiddenGlobal()
     local ok, hidden = pcall(function()
