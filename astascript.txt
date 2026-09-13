@@ -4270,585 +4270,714 @@ if Tabs.Lobby then
         return false
     end
   
-    local AutoMissionTabbox = Tabs.Lobby:AddLeftTabbox("Auto Content")
-    local MissionTab = AutoMissionTabbox:AddTab("Mission")
-    print("[Mission] SMART BUILD 2026-08-30 (MODIFIERS FIXED) LOADED")
+-- ============================================================
+-- Auto Content → Mission (with Boosted Map support)
+-- ============================================================
+local AutoMissionTabbox = Tabs.Lobby:AddLeftTabbox("Auto Content")
+local MissionTab = AutoMissionTabbox:AddTab("Mission")
+print("[Mission] SMART BUILD + Boosted Map LOADED")
 
-    local MissionObjectives = {
-        ["Shiganshina"] = {"Skirmish","Breach","Random"},
-        ["Trost"]       = {"Skirmish","Protect","Random"},
-        ["Outskirts"]   = {"Skirmish","Escort","Random"},
-        ["Forest"]      = {"Skirmish","Guard","Random"},
-        ["Utgard"]      = {"Skirmish","Defend","Random"},
-        ["Chapel"]      = {"Skirmish"},
-        ["Docks"]       = {"Skirmish","Stall","Random"},
-        ["Stohess"]     = {"Skirmish","Random"}
-    }
+local MissionObjectives = {
+    ["Shiganshina"] = {"Skirmish","Breach","Random"},
+    ["Trost"]       = {"Skirmish","Protect","Random"},
+    ["Outskirts"]   = {"Skirmish","Escort","Random"},
+    ["Forest"]      = {"Skirmish","Guard","Random"},
+    ["Utgard"]      = {"Skirmish","Defend","Random"},
+    ["Chapel"]      = {"Skirmish"},
+    ["Docks"]       = {"Skirmish","Stall","Random"},
+    ["Stohess"]     = {"Skirmish","Random"}
+}
 
-    local ModifiersList = {
-        "No Perks", "No Skills", "No Memories", "Nightmare", "Oddball",
-        "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"
-    }
+local ModifiersList = {
+    "No Perks", "No Skills", "No Memories", "Nightmare", "Oddball",
+    "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"
+}
 
-    local State_Mission = {
-        Name = "Shiganshina",
-        Objective = "Skirmish",
-        Difficulty = "Hardest"
-    }
+local State_Mission = {
+    Name = "Shiganshina",
+    Objective = "Skirmish",
+    Difficulty = "Hardest"
+}
 
-    local MissionDelay = 0
-    local missionRunning = false
-    local missionBusy = false
-    local missionSessionId = 0
-    local missionPendingStart = false
-    local missionStartTask = nil
-    local missionSelectionVersion = 0
+local MissionDelay = 0
+local missionRunning = false
+local missionBusy = false
+local missionSessionId = 0
+local missionPendingStart = false
+local missionStartTask = nil
+local missionSelectionVersion = 0
+local useBoostedMap = false          -- ← الحالة الجديدة
+
+-- ===== Boosted Map Helper (robust) =====
+local function GetBoostedMap()
+    local found = {}
+
+    local function tryAttr(obj, label)
+        if not obj then return end
+        local ok, v = pcall(function()
+            return obj:GetAttribute("Boosted_Map")
+        end)
+        if ok and type(v) == "string" and v ~= "" then
+            table.insert(found, {source = label, value = v})
+        end
+    end
+
+    tryAttr(workspace, "workspace")
+    tryAttr(game:GetService("Workspace"), "WorkspaceService")
+    tryAttr(game:GetService("ReplicatedStorage"), "ReplicatedStorage")
 
     pcall(function()
-        if Options and Options.MissionDropdown and Options.MissionDropdown.Value then
-            State_Mission.Name = Options.MissionDropdown.Value
-        end
-        if Options and Options.MissionObjectiveDropdown and Options.MissionObjectiveDropdown.Value then
-            State_Mission.Objective = Options.MissionObjectiveDropdown.Value
-        end
-        if Options and Options.MissionDifficultyDropdown and Options.MissionDifficultyDropdown.Value then
-            State_Mission.Difficulty = Options.MissionDifficultyDropdown.Value
-        end
-        if Options and Options.MissionDelaySlider and Options.MissionDelaySlider.Value then
-            MissionDelay = tonumber(Options.MissionDelaySlider.Value) or 0
-        end
+        local missions = game:GetService("ReplicatedStorage"):FindFirstChild("Missions")
+        if missions then tryAttr(missions, "ReplicatedStorage.Missions") end
     end)
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Helpers
-    -- ═══════════════════════════════════════════════════════════
-
-    local function GetPlayerLevel()
-        local success, level = pcall(function()
-            local playerGui = player:FindFirstChild("PlayerGui")
-            if not playerGui then return 1 end
-            local interface = playerGui:FindFirstChild("Interface")
-            if not interface then return 1 end
-            local gearUp = interface:FindFirstChild("Gear_Up")
-            if not gearUp then return 1 end
-            local hud = gearUp:FindFirstChild("HUD")
-            if not hud then return 1 end
-            local levelFrame = hud:FindFirstChild("Level")
-            if not levelFrame then return 1 end
-            local title = levelFrame:FindFirstChild("Title")
-            if not title then return 1 end
-            return tonumber(tostring(title.Text):match("%d+")) or 1
-        end)
-        return success and level or 1
-    end
-
-    local function GetMyMission(timeout)
-        timeout = timeout or 1.5
-        local start = tick()
-        while tick() - start < timeout do
-            local missions = game:GetService("ReplicatedStorage"):FindFirstChild("Missions")
-            if missions then
-                for _, mission in ipairs(missions:GetChildren()) do
-                    local leader = mission:FindFirstChild("Leader")
-                    if leader and leader.Value == player.Name then
-                        return mission
-                    end
-                end
-            end
-            task.wait(0.08)
-        end
-        return nil
-    end
-
-    local function LeaveMission(waitForGone)
-        SafeMissionCall("S_Missions", "Leave")
-        if waitForGone == false then return end
-        local start = tick()
-        while tick() - start < 1.5 do
-            if not GetMyMission(0.1) then break end
-            task.wait(0.08)
-        end
-        task.wait(0.15)
-    end
-
-    local function CreateMission(missionName, objective, difficulty)
-        for attempt = 1, 3 do
-            if not missionRunning then return false end
-
-            local success, result = SafeMissionCall("S_Missions", "Create", {
-                Difficulty = difficulty,
-                Type = "Missions",
-                Name = missionName,
-                Objective = objective
-            })
-
-            task.wait(0.12)
-            local mission = GetMyMission(0.7)
-            if mission then
-                return true, mission
-            end
-
-            if attempt < 3 then
-                LeaveMission(true)
-                task.wait(0.2)
-            end
-        end
-        return false
-    end
-
-    -- ═══════════════════════════════════════════════════════════
-    -- Modifiers (محسّن)
-    -- ═══════════════════════════════════════════════════════════
-
-    local function ClearMissionModifiers()
-        if not missionRunning then return end
-        for _ = 1, 3 do
-            if not missionRunning then break end
-            SafeMissionCall("S_Missions", "ClearModifiers")
-            task.wait(0.18)
-        end
-        task.wait(0.35)
-    end
-
-    local function ApplyModifier(mod)
-        local names = {mod}
-        local noSpace = mod:gsub("%s+", "")
-        if noSpace ~= mod then
-            table.insert(names, noSpace)
-        end
-
-        for _, name in ipairs(names) do
-            for attempt = 1, 4 do
-                if not missionRunning then return false end
-
-                local success, result = SafeMissionCall("S_Missions", "Modify", name)
-
-                if success then
-                    if result == true or result == "true" or result == 1 then
-                        return true
-                    end
-                    if type(result) == "table" and (result.Success == true or result.success == true) then
-                        return true
-                    end
-                end
-
-                task.wait(0.18 + (attempt * 0.05))
-            end
-        end
-        return false
-    end
-
-    local function ApplyMissionModifiers()
-        if not missionRunning then return end
-
-        local selected = {}
-        pcall(function()
-            if Options and Options.MissionModifiersDropdown and Options.MissionModifiersDropdown.Value then
-                local value = Options.MissionModifiersDropdown.Value
-                if type(value) == "table" then
-                    for mod, enabled in pairs(value) do
-                        if enabled then
-                            table.insert(selected, mod)
-                        end
-                    end
-                end
-            end
-        end)
-
-        if #selected == 0 then
-            Library:Notify("No modifiers selected", 2)
-            return
-        end
-
-        -- ترتيب ثابت
-        local ordered = {}
-        for _, mod in ipairs(ModifiersList) do
-            for _, sel in ipairs(selected) do
-                if sel == mod then
-                    table.insert(ordered, mod)
-                    break
-                end
-            end
-        end
-        for _, sel in ipairs(selected) do
-            local found = false
-            for _, o in ipairs(ordered) do
-                if o == sel then found = true break end
-            end
-            if not found then
-                table.insert(ordered, sel)
-            end
-        end
-
-        ClearMissionModifiers()
-        if not missionRunning then return end
-
-        local applied = 0
-        local failed = {}
-
-        for _, mod in ipairs(ordered) do
-            if not missionRunning then break end
-
-            local success = ApplyModifier(mod)
-            if success then
-                applied += 1
-                print("[Mission] ✓ Modifier applied:", mod)
-            else
-                table.insert(failed, mod)
-                warn("[Mission] ✗ Failed modifier:", mod)
-            end
-            task.wait(0.16)
-        end
-
-        -- Retry قوي للفاشلين
-        if #failed > 0 and missionRunning then
-            task.wait(0.5)
-            Library:Notify("Retrying failed modifiers...", 2)
-
-            local stillFailed = {}
-            for _, mod in ipairs(failed) do
-                if not missionRunning then break end
-
-                local success = false
-                for _ = 1, 3 do
-                    success = ApplyModifier(mod)
-                    if success then break end
-                    task.wait(0.22)
-                end
-
-                if success then
-                    applied += 1
-                    print("[Mission] ✓ Retry success:", mod)
-                else
-                    table.insert(stillFailed, mod)
-                end
-                task.wait(0.18)
-            end
-            failed = stillFailed
-        end
-
-        task.wait(0.4)
-
-        if #failed == 0 then
-            Library:Notify(string.format("Applied %d/%d modifiers", applied, #selected), 3)
-        else
-            Library:Notify(string.format("Applied %d/%d (failed: %s)", applied, #selected, table.concat(failed, ", ")), 4)
-        end
-    end
-
-    local function StartMission()
-        if not missionRunning then return false end
-
-        for attempt = 1, 4 do
-            if not missionRunning then return false end
-
-            local success = SafeMissionCall("S_Missions", "Start")
-            task.wait(0.3)
-
-            if not GetMyMission(0.8) then
-                print("[Mission] Started successfully on attempt", attempt)
-                return true
-            end
-
-            if attempt < 4 then
-                warn("[Mission] Start attempt", attempt, "— mission still in lobby, retrying...")
-                task.wait(0.25)
-            end
-        end
-        return false
-    end
-
-    local function WaitForLobbyUI(timeout)
-        timeout = timeout or 15
-        if _G.LobbyUILoaded then return true end
-        local started = tick()
-        while not _G.LobbyUILoaded do
-            if tick() - started >= timeout then return false end
-            task.wait(0.2)
-        end
-        return true
-    end
-
-    -- ═══════════════════════════════════════════════════════════
-    -- Main Cycle
-    -- ═══════════════════════════════════════════════════════════
-
-    local function RunMissionCycle(mySession)
-        if not missionRunning or missionSessionId ~= mySession then return end
-
-        if _G.LobbyUILoaded ~= true then
-            pcall(function() WaitForLobbyUI(12) end)
-        end
-
-        if MissionDelay > 0 then
-            task.wait(MissionDelay)
-        end
-
-        if not missionRunning or missionSessionId ~= mySession then return end
-
-        local selectionVersion = missionSelectionVersion
-        local currentMission = (Options and Options.MissionDropdown and Options.MissionDropdown.Value) or State_Mission.Name
-        local objective = (Options and Options.MissionObjectiveDropdown and Options.MissionObjectiveDropdown.Value) or State_Mission.Objective
-        local selectedDifficulty = (Options and Options.MissionDifficultyDropdown and Options.MissionDifficultyDropdown.Value) or State_Mission.Difficulty
-
-        if not MissionObjectives[currentMission] then
-            currentMission = State_Mission.Name
-        end
-
-        local validObjectives = MissionObjectives[currentMission] or {"Skirmish"}
-        local objectiveIsValid = false
-        for _, allowed in ipairs(validObjectives) do
-            if allowed == objective then
-                objectiveIsValid = true
+    -- limited scan for attribute (first match only)
+    pcall(function()
+        for _, obj in ipairs(game:GetDescendants()) do
+            local ok, v = pcall(function()
+                return obj:GetAttribute("Boosted_Map")
+            end)
+            if ok and type(v) == "string" and v ~= "" then
+                table.insert(found, {source = obj:GetFullName(), value = v})
                 break
             end
         end
-        if not objectiveIsValid then
-            objective = validObjectives[1] or "Skirmish"
+    end)
+
+    if #found == 0 then
+        print("[BoostedMap] not found")
+        return nil
+    end
+
+    for _, e in ipairs(found) do
+        print("[BoostedMap]", e.value, "from", e.source)
+    end
+
+    -- prefer a known mission map name
+    for _, e in ipairs(found) do
+        if MissionObjectives[e.value] then
+            return e.value
         end
+    end
+    return found[1].value
+end
 
-        if objective == "Random" then
-            local filtered = {}
-            for _, v in ipairs(validObjectives) do
-                if v ~= "Random" then table.insert(filtered, v) end
-            end
-            objective = (#filtered > 0) and filtered[math.random(1, #filtered)] or "Skirmish"
-        end
+pcall(function()
+    if Options and Options.MissionDropdown and Options.MissionDropdown.Value then
+        State_Mission.Name = Options.MissionDropdown.Value
+    end
+    if Options and Options.MissionObjectiveDropdown and Options.MissionObjectiveDropdown.Value then
+        State_Mission.Objective = Options.MissionObjectiveDropdown.Value
+    end
+    if Options and Options.MissionDifficultyDropdown and Options.MissionDifficultyDropdown.Value then
+        State_Mission.Difficulty = Options.MissionDifficultyDropdown.Value
+    end
+    if Options and Options.MissionDelaySlider and Options.MissionDelaySlider.Value then
+        MissionDelay = tonumber(Options.MissionDelaySlider.Value) or 0
+    end
+end)
 
-        local function SelectionStillCurrent()
-            local liveMission = (Options and Options.MissionDropdown and Options.MissionDropdown.Value) or State_Mission.Name
-            local liveObjective = (Options and Options.MissionObjectiveDropdown and Options.MissionObjectiveDropdown.Value) or State_Mission.Objective
-            local liveDifficulty = (Options and Options.MissionDifficultyDropdown and Options.MissionDifficultyDropdown.Value) or State_Mission.Difficulty
-            return missionSelectionVersion == selectionVersion
-                and liveMission == currentMission
-                and liveObjective == (Options and Options.MissionObjectiveDropdown and Options.MissionObjectiveDropdown.Value or objective)
-                and liveDifficulty == selectedDifficulty
-        end
+-- ═══════════════════════════════════════════════════════════
+-- Helpers
+-- ═══════════════════════════════════════════════════════════
 
-        print(string.format("[Mission] Cycle => Map=%s | Obj=%s | Diff=%s", currentMission, objective, selectedDifficulty))
+local function GetPlayerLevel()
+    local success, level = pcall(function()
+        local playerGui = player:FindFirstChild("PlayerGui")
+        if not playerGui then return 1 end
+        local interface = playerGui:FindFirstChild("Interface")
+        if not interface then return 1 end
+        local gearUp = interface:FindFirstChild("Gear_Up")
+        if not gearUp then return 1 end
+        local hud = gearUp:FindFirstChild("HUD")
+        if not hud then return 1 end
+        local levelFrame = hud:FindFirstChild("Level")
+        if not levelFrame then return 1 end
+        local title = levelFrame:FindFirstChild("Title")
+        if not title then return 1 end
+        return tonumber(tostring(title.Text):match("%d+")) or 1
+    end)
+    return success and level or 1
+end
 
-        if GetMyMission(0.2) then
-            LeaveMission(true)
-        end
-
-        local targetDifficulty = selectedDifficulty
-        local created = false
-
-        if selectedDifficulty == "Hardest" then
-            local level = GetPlayerLevel()
-            local difficultyCycle
-            if level >= 100 then
-                difficultyCycle = {"Aberrant"}
-            elseif level >= 60 then
-                difficultyCycle = {"Aberrant", "Severe", "Hard", "Normal", "Easy"}
-            elseif level >= 40 then
-                difficultyCycle = {"Severe", "Hard", "Normal", "Easy"}
-            else
-                difficultyCycle = {"Hard", "Normal", "Easy"}
-            end
-
-            for _, diff in ipairs(difficultyCycle) do
-                if not missionRunning or missionSessionId ~= mySession then return end
-                if not SelectionStillCurrent() then return end
-
-                created = CreateMission(currentMission, objective, diff)
-                if created then
-                    targetDifficulty = diff
-                    Library:Notify("Found difficulty: " .. diff, 3)
-                    break
+local function GetMyMission(timeout)
+    timeout = timeout or 1.5
+    local start = tick()
+    while tick() - start < timeout do
+        local missions = game:GetService("ReplicatedStorage"):FindFirstChild("Missions")
+        if missions then
+            for _, mission in ipairs(missions:GetChildren()) do
+                local leader = mission:FindFirstChild("Leader")
+                if leader and leader.Value == player.Name then
+                    return mission
                 end
-                LeaveMission(true)
-                task.wait(0.15)
             end
+        end
+        task.wait(0.08)
+    end
+    return nil
+end
+
+local function LeaveMission(waitForGone)
+    SafeMissionCall("S_Missions", "Leave")
+    if waitForGone == false then return end
+    local start = tick()
+    while tick() - start < 1.5 do
+        if not GetMyMission(0.1) then break end
+        task.wait(0.08)
+    end
+    task.wait(0.15)
+end
+
+local function CreateMission(missionName, objective, difficulty)
+    for attempt = 1, 3 do
+        if not missionRunning then return false end
+
+        local success, result = SafeMissionCall("S_Missions", "Create", {
+            Difficulty = difficulty,
+            Type = "Missions",
+            Name = missionName,
+            Objective = objective
+        })
+
+        task.wait(0.12)
+        local mission = GetMyMission(0.7)
+        if mission then
+            return true, mission
+        end
+
+        if attempt < 3 then
+            LeaveMission(true)
+            task.wait(0.2)
+        end
+    end
+    return false
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- Modifiers
+-- ═══════════════════════════════════════════════════════════
+
+local function ClearMissionModifiers()
+    if not missionRunning then return end
+    for _ = 1, 3 do
+        if not missionRunning then break end
+        SafeMissionCall("S_Missions", "ClearModifiers")
+        task.wait(0.18)
+    end
+    task.wait(0.35)
+end
+
+local function ApplyModifier(mod)
+    local names = {mod}
+    local noSpace = mod:gsub("%s+", "")
+    if noSpace ~= mod then
+        table.insert(names, noSpace)
+    end
+
+    for _, name in ipairs(names) do
+        for attempt = 1, 4 do
+            if not missionRunning then return false end
+
+            local success, result = SafeMissionCall("S_Missions", "Modify", name)
+
+            if success then
+                if result == true or result == "true" or result == 1 then
+                    return true
+                end
+                if type(result) == "table" and (result.Success == true or result.success == true) then
+                    return true
+                end
+            end
+
+            task.wait(0.18 + (attempt * 0.05))
+        end
+    end
+    return false
+end
+
+local function ApplyMissionModifiers()
+    if not missionRunning then return end
+
+    local selected = {}
+    pcall(function()
+        if Options and Options.MissionModifiersDropdown and Options.MissionModifiersDropdown.Value then
+            local value = Options.MissionModifiersDropdown.Value
+            if type(value) == "table" then
+                for mod, enabled in pairs(value) do
+                    if enabled then
+                        table.insert(selected, mod)
+                    end
+                end
+            end
+        end
+    end)
+
+    if #selected == 0 then
+        Library:Notify("No modifiers selected", 2)
+        return
+    end
+
+    local ordered = {}
+    for _, mod in ipairs(ModifiersList) do
+        for _, sel in ipairs(selected) do
+            if sel == mod then
+                table.insert(ordered, mod)
+                break
+            end
+        end
+    end
+    for _, sel in ipairs(selected) do
+        local found = false
+        for _, o in ipairs(ordered) do
+            if o == sel then found = true break end
+        end
+        if not found then
+            table.insert(ordered, sel)
+        end
+    end
+
+    ClearMissionModifiers()
+    if not missionRunning then return end
+
+    local applied = 0
+    local failed = {}
+
+    for _, mod in ipairs(ordered) do
+        if not missionRunning then break end
+
+        local success = ApplyModifier(mod)
+        if success then
+            applied += 1
+            print("[Mission] ✓ Modifier applied:", mod)
         else
-            created = CreateMission(currentMission, objective, targetDifficulty)
+            table.insert(failed, mod)
+            warn("[Mission] ✗ Failed modifier:", mod)
         end
+        task.wait(0.16)
+    end
 
-        if not created then
-            Library:Notify("Mission creation failed", 3)
-            LeaveMission(true)
-            return
+    if #failed > 0 and missionRunning then
+        task.wait(0.5)
+        Library:Notify("Retrying failed modifiers...", 2)
+
+        local stillFailed = {}
+        for _, mod in ipairs(failed) do
+            if not missionRunning then break end
+
+            local success = false
+            for _ = 1, 3 do
+                success = ApplyModifier(mod)
+                if success then break end
+                task.wait(0.22)
+            end
+
+            if success then
+                applied += 1
+                print("[Mission] ✓ Retry success:", mod)
+            else
+                table.insert(stillFailed, mod)
+            end
+            task.wait(0.18)
         end
+        failed = stillFailed
+    end
 
-        if not missionRunning or missionSessionId ~= mySession or not SelectionStillCurrent() then
-            LeaveMission(true)
-            return
-        end
+    task.wait(0.4)
 
-        Library:Notify("Applying modifiers...", 2)
-        ApplyMissionModifiers()
+    if #failed == 0 then
+        Library:Notify(string.format("Applied %d/%d modifiers", applied, #selected), 3)
+    else
+        Library:Notify(string.format("Applied %d/%d (failed: %s)", applied, #selected, table.concat(failed, ", ")), 4)
+    end
+end
 
-        if not missionRunning or missionSessionId ~= mySession or not SelectionStillCurrent() then
-            LeaveMission(true)
-            return
-        end
+local function StartMission()
+    if not missionRunning then return false end
 
+    for attempt = 1, 4 do
+        if not missionRunning then return false end
+
+        local success = SafeMissionCall("S_Missions", "Start")
         task.wait(0.3)
 
-        if not missionRunning or missionSessionId ~= mySession or not SelectionStillCurrent() then
-            LeaveMission(true)
+        if not GetMyMission(0.8) then
+            print("[Mission] Started successfully on attempt", attempt)
+            return true
+        end
+
+        if attempt < 4 then
+            warn("[Mission] Start attempt", attempt, "— mission still in lobby, retrying...")
+            task.wait(0.25)
+        end
+    end
+    return false
+end
+
+local function WaitForLobbyUI(timeout)
+    timeout = timeout or 15
+    if _G.LobbyUILoaded then return true end
+    local started = tick()
+    while not _G.LobbyUILoaded do
+        if tick() - started >= timeout then return false end
+        task.wait(0.2)
+    end
+    return true
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- Main Cycle (with Boosted Map)
+-- ═══════════════════════════════════════════════════════════
+
+local function RunMissionCycle(mySession)
+    if not missionRunning or missionSessionId ~= mySession then return end
+
+    if _G.LobbyUILoaded ~= true then
+        pcall(function() WaitForLobbyUI(12) end)
+    end
+
+    if MissionDelay > 0 then
+        task.wait(MissionDelay)
+    end
+
+    if not missionRunning or missionSessionId ~= mySession then return end
+
+    local selectionVersion = missionSelectionVersion
+    local objective = (Options and Options.MissionObjectiveDropdown and Options.MissionObjectiveDropdown.Value) or State_Mission.Objective
+    local selectedDifficulty = (Options and Options.MissionDifficultyDropdown and Options.MissionDifficultyDropdown.Value) or State_Mission.Difficulty
+
+    -- ===== Boosted Map Logic (no wrong fallback) =====
+    local currentMission
+    if useBoostedMap then
+        local boosted = GetBoostedMap()
+        if boosted and MissionObjectives[boosted] then
+            currentMission = boosted
+            print("[Mission] FORCED Boosted Map →", currentMission)
+            Library:Notify("Boosted Map: " .. currentMission, 3)
+        else
+            -- IMPORTANT: do NOT fall back to dropdown (was causing Docks)
+            Library:Notify("No valid Boosted Map right now — skipping cycle", 4)
+            print("[Mission] Skip cycle: invalid/missing boosted map →", tostring(boosted))
             return
         end
+    else
+        currentMission = (Options and Options.MissionDropdown and Options.MissionDropdown.Value) or State_Mission.Name
+    end
 
-        Library:Notify("Starting: " .. currentMission .. " (" .. targetDifficulty .. ")", 2)
-        local started = StartMission()
+    if not MissionObjectives[currentMission] then
+        Library:Notify("Invalid map: " .. tostring(currentMission), 3)
+        print("[Mission] Invalid map, abort cycle:", tostring(currentMission))
+        return
+    end
 
-        if started then
-            Library:Notify("Mission started!", 3)
+    local validObjectives = MissionObjectives[currentMission] or {"Skirmish"}
+    local objectiveIsValid = false
+    for _, allowed in ipairs(validObjectives) do
+        if allowed == objective then
+            objectiveIsValid = true
+            break
+        end
+    end
+    if not objectiveIsValid then
+        objective = validObjectives[1] or "Skirmish"
+    end
+
+    if objective == "Random" then
+        local filtered = {}
+        for _, v in ipairs(validObjectives) do
+            if v ~= "Random" then table.insert(filtered, v) end
+        end
+        objective = (#filtered > 0) and filtered[math.random(1, #filtered)] or "Skirmish"
+    end
+
+    local function SelectionStillCurrent()
+        -- لما Boosted Map شغال منتجاهل تغيير الـ Dropdown
+        if useBoostedMap then
+            return missionSelectionVersion == selectionVersion
+        end
+        local liveMission = (Options and Options.MissionDropdown and Options.MissionDropdown.Value) or State_Mission.Name
+        local liveObjective = (Options and Options.MissionObjectiveDropdown and Options.MissionObjectiveDropdown.Value) or State_Mission.Objective
+        local liveDifficulty = (Options and Options.MissionDifficultyDropdown and Options.MissionDifficultyDropdown.Value) or State_Mission.Difficulty
+        return missionSelectionVersion == selectionVersion
+            and liveMission == currentMission
+            and liveObjective == (Options and Options.MissionObjectiveDropdown and Options.MissionObjectiveDropdown.Value or objective)
+            and liveDifficulty == selectedDifficulty
+    end
+
+    print(string.format("[Mission] Cycle => Map=%s | Obj=%s | Diff=%s | Boosted=%s", 
+        currentMission, objective, selectedDifficulty, tostring(useBoostedMap)))
+
+    if GetMyMission(0.2) then
+        LeaveMission(true)
+    end
+
+    local targetDifficulty = selectedDifficulty
+    local created = false
+
+    if selectedDifficulty == "Hardest" then
+        local level = GetPlayerLevel()
+        local difficultyCycle
+        if level >= 100 then
+            difficultyCycle = {"Aberrant"}
+        elseif level >= 60 then
+            difficultyCycle = {"Aberrant", "Severe", "Hard", "Normal", "Easy"}
+        elseif level >= 40 then
+            difficultyCycle = {"Severe", "Hard", "Normal", "Easy"}
         else
-            Library:Notify("Start failed after retries", 4)
+            difficultyCycle = {"Hard", "Normal", "Easy"}
+        end
+
+        for _, diff in ipairs(difficultyCycle) do
+            if not missionRunning or missionSessionId ~= mySession then return end
+            if not SelectionStillCurrent() then return end
+
+            created = CreateMission(currentMission, objective, diff)
+            if created then
+                targetDifficulty = diff
+                Library:Notify("Found difficulty: " .. diff, 3)
+                break
+            end
             LeaveMission(true)
+            task.wait(0.15)
         end
+    else
+        created = CreateMission(currentMission, objective, targetDifficulty)
     end
 
-    local function MissionLoop(mySession)
-        while missionRunning and missionSessionId == mySession do
-            if missionBusy then
-                task.wait(0.05)
-                continue
-            end
-            missionBusy = true
-
-            local ok, err = pcall(function()
-                RunMissionCycle(mySession)
-            end)
-
-            if not ok then
-                warn("[Mission] Error:", err)
-                Library:Notify("Mission error - retrying", 3)
-                pcall(function() LeaveMission(true) end)
-            end
-
-            missionBusy = false
-
-            if missionRunning and missionSessionId == mySession then
-                task.wait(1.5)
-            end
-        end
+    if not created then
+        Library:Notify("Mission creation failed", 3)
+        LeaveMission(true)
+        return
     end
 
-    -- ═══════════════════════════════════════════════════════════
-    -- UI
-    -- ═══════════════════════════════════════════════════════════
+    if not missionRunning or missionSessionId ~= mySession or not SelectionStillCurrent() then
+        LeaveMission(true)
+        return
+    end
 
-    MissionTab:AddDropdown("MissionDropdown", {
-        Values = {"Shiganshina","Trost","Outskirts","Forest","Utgard","Docks","Stohess","Chapel"},
-        Default = State_Mission.Name,
-        Text = "Mission",
-        Callback = function(val)
-            missionSelectionVersion += 1
-            State_Mission.Name = val
-            print("[Mission] Map selected:", val)
-            local newObjs = MissionObjectives[val] or {"Skirmish"}
-            State_Mission.Objective = newObjs[1]
-            if Options and Options.MissionObjectiveDropdown then
-                Options.MissionObjectiveDropdown:SetValues(newObjs)
-                Options.MissionObjectiveDropdown:SetValue(newObjs[1])
-            end
+    Library:Notify("Applying modifiers...", 2)
+    ApplyMissionModifiers()
+
+    if not missionRunning or missionSessionId ~= mySession or not SelectionStillCurrent() then
+        LeaveMission(true)
+        return
+    end
+
+    task.wait(0.3)
+
+    if not missionRunning or missionSessionId ~= mySession or not SelectionStillCurrent() then
+        LeaveMission(true)
+        return
+    end
+
+    Library:Notify("Starting: " .. currentMission .. " (" .. targetDifficulty .. ")", 2)
+    local started = StartMission()
+
+    if started then
+        Library:Notify("Mission started!", 3)
+    else
+        Library:Notify("Start failed after retries", 4)
+        LeaveMission(true)
+    end
+end
+
+local function MissionLoop(mySession)
+    while missionRunning and missionSessionId == mySession do
+        if missionBusy then
+            task.wait(0.05)
+            continue
         end
-    })
+        missionBusy = true
 
-    MissionTab:AddDropdown("MissionObjectiveDropdown", {
-        Values = MissionObjectives[State_Mission.Name] or {"Skirmish"},
-        Default = State_Mission.Objective,
-        Text = "Objective",
-        Callback = function(val)
-            State_Mission.Objective = val
+        local ok, err = pcall(function()
+            RunMissionCycle(mySession)
+        end)
+
+        if not ok then
+            warn("[Mission] Error:", err)
+            Library:Notify("Mission error - retrying", 3)
+            pcall(function() LeaveMission(true) end)
         end
-    })
 
-    MissionTab:AddDropdown("MissionDifficultyDropdown", {
-        Values = {"Easy","Normal","Hard","Severe","Aberrant","Hardest"},
-        Default = State_Mission.Difficulty,
-        Text = "Mode",
-        Callback = function(val)
-            State_Mission.Difficulty = val
-        end
-    })
+        missionBusy = false
+        task.wait(1.5) -- انتظار بسيط قبل الدورة الجاية
+    end
+end
 
-    MissionTab:AddDropdown("MissionModifiersDropdown", {
-        Values = ModifiersList,
-        Default = {},
-        Multi = true,
-        Text = "Modifiers",
-        Callback = function() end
-    })
+-- ═══════════════════════════════════════════════════════════
+-- UI
+-- ═══════════════════════════════════════════════════════════
 
-    MissionTab:AddSlider("MissionDelaySlider", {
-        Text = "Delay",
-        Default = MissionDelay,
-        Min = 0,
-        Max = 60,
-        Rounding = 0,
-        Callback = function(v)
-            MissionDelay = v
-        end
-    })
-
-    local activeAutoContent = nil
-
-    local missionToggle = MissionTab:AddToggle("AutoStartMissionToggle", {
-        Text = "Start Mission",
-        Default = false,
-        Callback = function(v)
-            if v then
-                if missionRunning or missionPendingStart then return end
-                if activeAutoContent ~= nil then
-                    Library:Notify("Select one Toggle", 2)
-                    pcall(function()
-                        if Options and Options.AutoStartMissionToggle then
-                            Options.AutoStartMissionToggle:SetValue(false)
-                        end
-                    end)
-                    return
-                end
-
-                print("[Mission] START TOGGLE = ON")
-                getgenv().MissionStarting = true
-                Library:Notify("Starting Mission Auto...", 2)
-                activeAutoContent = "mission"
-                missionPendingStart = true
-
-                missionStartTask = task.spawn(function()
-                    if not missionPendingStart then return end
-
-                    missionRunning = true
-                    getgenv().MissionStarting = true
-                    missionBusy = false
-                    missionSessionId += 1
-                    local session = missionSessionId
-
-                    print("[Mission] missionRunning = true | session =", session)
-
-                    task.spawn(function()
-                        local ok, err = pcall(function()
-                            MissionLoop(session)
-                        end)
-                        if not ok then
-                            warn("[Mission] MissionLoop Error:", err)
-                        end
-                    end)
-
-                    missionPendingStart = false
-                end)
+MissionTab:AddToggle("UseBoostedMapToggle", {
+    Text = "Use Boosted Map",
+    Default = false,
+    Callback = function(v)
+        useBoostedMap = v
+        if v then
+            local boosted = GetBoostedMap()
+            if boosted then
+                Library:Notify("Boosted Map mode ON → " .. boosted, 3)
             else
-                missionPendingStart = false
-                if missionStartTask then
-                    pcall(function() task.cancel(missionStartTask) end)
-                    missionStartTask = nil
-                end
-                missionRunning = false
-                getgenv().MissionStarting = false
+                Library:Notify("Boosted Map mode ON (waiting for map...)", 3)
+            end
+        else
+            Library:Notify("Boosted Map mode OFF", 2)
+        end
+    end
+})
+
+MissionTab:AddDropdown("MissionDropdown", {
+    Values = {"Shiganshina","Trost","Outskirts","Forest","Utgard","Docks","Stohess","Chapel"},
+    Default = State_Mission.Name,
+    Text = "Mission",
+    Callback = function(val)
+        missionSelectionVersion += 1
+        State_Mission.Name = val
+        print("[Mission] Map selected:", val)
+        local newObjs = MissionObjectives[val] or {"Skirmish"}
+        State_Mission.Objective = newObjs[1]
+        if Options and Options.MissionObjectiveDropdown then
+            Options.MissionObjectiveDropdown:SetValues(newObjs)
+            Options.MissionObjectiveDropdown:SetValue(newObjs[1])
+        end
+    end
+})
+
+MissionTab:AddDropdown("MissionObjectiveDropdown", {
+    Values = MissionObjectives[State_Mission.Name] or {"Skirmish"},
+    Default = State_Mission.Objective,
+    Text = "Objective",
+    Callback = function(val)
+        State_Mission.Objective = val
+    end
+})
+
+MissionTab:AddDropdown("MissionDifficultyDropdown", {
+    Values = {"Easy","Normal","Hard","Severe","Aberrant","Hardest"},
+    Default = State_Mission.Difficulty,
+    Text = "Mode",
+    Callback = function(val)
+        State_Mission.Difficulty = val
+    end
+})
+
+MissionTab:AddDropdown("MissionModifiersDropdown", {
+    Values = ModifiersList,
+    Default = {},
+    Multi = true,
+    Text = "Modifiers",
+    Callback = function() end
+})
+
+MissionTab:AddSlider("MissionDelaySlider", {
+    Text = "Delay",
+    Default = MissionDelay,
+    Min = 0,
+    Max = 60,
+    Rounding = 0,
+    Callback = function(v)
+        MissionDelay = v
+    end
+})
+
+local activeAutoContent = nil
+
+local missionToggle = MissionTab:AddToggle("AutoStartMissionToggle", {
+    Text = "Start Mission",
+    Default = false,
+    Callback = function(v)
+        if v then
+            if missionRunning or missionPendingStart then return end
+            if activeAutoContent ~= nil then
+                Library:Notify("Select one Toggle", 2)
+                pcall(function()
+                    if Options and Options.AutoStartMissionToggle then
+                        Options.AutoStartMissionToggle:SetValue(false)
+                    end
+                end)
+                return
+            end
+
+            print("[Mission] START TOGGLE = ON")
+            getgenv().MissionStarting = true
+            Library:Notify("Starting Mission Auto...", 2)
+            activeAutoContent = "mission"
+            missionPendingStart = true
+
+            missionStartTask = task.spawn(function()
+                if not missionPendingStart then return end
+
+                missionRunning = true
+                getgenv().MissionStarting = true
                 missionBusy = false
                 missionSessionId += 1
-                pcall(function() LeaveMission(true) end)
-                if activeAutoContent == "mission" then
-                    activeAutoContent = nil
-                end
+                local session = missionSessionId
+
+                print("[Mission] missionRunning = true | session =", session)
+
+                task.spawn(function()
+                    local ok, err = pcall(function()
+                        MissionLoop(session)
+                    end)
+                    if not ok then
+                        warn("[Mission] MissionLoop Error:", err)
+                    end
+                end)
+
+                missionPendingStart = false
+            end)
+        else
+            missionPendingStart = false
+            if missionStartTask then
+                pcall(function() task.cancel(missionStartTask) end)
+                missionStartTask = nil
+            end
+            missionRunning = false
+            getgenv().MissionStarting = false
+            missionBusy = false
+            missionSessionId += 1
+            pcall(function() LeaveMission(true) end)
+            if activeAutoContent == "mission" then
+                activeAutoContent = nil
             end
         end
-    })
+    end
+})
 
+-- راقب تغيير الـ Boosted Map (اختياري لكن مفيد)
+task.spawn(function()
+    local lastBoosted = nil
+    while true do
+        task.wait(2)
+        if not useBoostedMap then 
+            lastBoosted = nil
+            continue 
+        end
+
+        local current = GetBoostedMap()
+        if current and current ~= lastBoosted then
+            lastBoosted = current
+            print("[Mission] Boosted Map changed to:", current)
+
+            local newObjs = MissionObjectives[current] or {"Skirmish"}
+            if Options and Options.MissionObjectiveDropdown then
+                pcall(function()
+                    Options.MissionObjectiveDropdown:SetValues(newObjs)
+                    local currentObj = Options.MissionObjectiveDropdown.Value
+                    local valid = false
+                    for _, o in ipairs(newObjs) do
+                        if o == currentObj then valid = true break end
+                    end
+                    if not valid then
+                        Options.MissionObjectiveDropdown:SetValue(newObjs[1])
+                    end
+                end)
+            end
+
+            Library:Notify("Boosted Map → " .. current, 3)
+        end
+    end
+end)
         local WavesTab = AutoMissionTabbox:AddTab("Waves")
 
     local wavesRunning = false
