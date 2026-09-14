@@ -997,17 +997,15 @@ if IsLobbyLobby() then
             end)
 
             if ok and type(data) == "table" then
-                local storage = data.Slots
-                    and data.Slots.A
-                    and data.Slots.A.Perks
-                    and data.Slots.A.Perks.Storage
-
-                if type(storage) == "table" then
+                local function tryStorage(storage)
+                    if type(storage) ~= "table" then return end
                     for uid, info in pairs(storage) do
-                        if type(uid) == "string" and #uid > 20 and not seen[uid] then
+                        if type(uid) == "string" and #uid > 15 and not seen[uid] then
                             local name = "Unknown"
                             if type(info) == "table" then
                                 name = info.Name or info.Perk or info.Title or "Unknown"
+                            elseif type(info) == "string" then
+                                name = info
                             end
                             seen[uid] = true
                             table.insert(found, {
@@ -1018,10 +1016,35 @@ if IsLobbyLobby() then
                         end
                     end
                 end
+
+                if data.Slots then
+                    for _, slotKey in ipairs({"A", "B", "C", data.Current_Slot or "A"}) do
+                        local slot = data.Slots[slotKey]
+                        if type(slot) == "table" and type(slot.Perks) == "table" then
+                            tryStorage(slot.Perks.Storage)
+                            tryStorage(slot.Perks.Inventory)
+                            tryStorage(slot.Perks)
+                        end
+                    end
+                end
+                tryStorage(data.Storage)
+                tryStorage(data.Perks)
             end
+
+            -- Always cache for standalone printer / other features
+            getgenv().LastPerkList = found
+            local idsOnly = {}
+            for _, e in ipairs(found) do
+                table.insert(idsOnly, e.id)
+            end
+            getgenv().CachedPerkIds = idsOnly
+            getgenv().CachedPerkList = found
 
             return found
         end
+
+        -- Expose for other tabs / standalone
+        getgenv().TownShip_CollectAllPerks = collectAllPerks
 
         local function deleteBatch(ids)
             if #ids == 0 then return false end
@@ -1031,11 +1054,23 @@ if IsLobbyLobby() then
             return ok
         end
 
+        -- Always fetch fresh IDs (they change after every delete)
+        local function loadPerkListForDelete()
+            print("[Perks] Collecting live perk list...")
+            local live = collectAllPerks()
+            return live or {}, "live"
+        end
+
         local function runDeletePerks(silent)
             if isDeleting then return end
             isDeleting = true
 
-            local list = collectAllPerks()
+            local list = loadPerkListForDelete()
+
+            print(string.format("[Perks] Delete pipeline list = %d perk(s)", #list))
+            for i, entry in ipairs(list) do
+                print(string.format("[Perks][%03d] %s | %s | %s", i, entry.id, entry.name, entry.rarity))
+            end
 
             if #list == 0 then
                 if not silent then
@@ -1045,20 +1080,53 @@ if IsLobbyLobby() then
                 return
             end
 
+            -- Sync toggles from Options
+            pcall(function()
+                if Options then
+                    if Options.PerkDel_Common then targetRarities.Common = Options.PerkDel_Common.Value end
+                    if Options.PerkDel_Rare then targetRarities.Rare = Options.PerkDel_Rare.Value end
+                    if Options.PerkDel_Epic then targetRarities.Epic = Options.PerkDel_Epic.Value end
+                    if Options.PerkDel_Legendary then targetRarities.Legendary = Options.PerkDel_Legendary.Value end
+                    if Options.PerkDel_Secret then targetRarities.Secret = Options.PerkDel_Secret.Value end
+                end
+            end)
+
             local toDelete = {}
+            local deleteBreakdown = { Common = 0, Rare = 0, Epic = 0, Legendary = 0, Secret = 0 }
             for _, entry in ipairs(list) do
-                if targetRarities[entry.rarity] then
+                local r = entry.rarity
+                if targetRarities[r] then
                     table.insert(toDelete, entry.id)
+                    if deleteBreakdown[r] then
+                        deleteBreakdown[r] = deleteBreakdown[r] + 1
+                    end
                 end
             end
 
+            getgenv().LastDeletePerkIds = toDelete
+            getgenv().LastDeleteBreakdown = deleteBreakdown
+
             if #toDelete == 0 then
                 if not silent then
-                    Library:Notify("No matching rarities to delete", 3)
+                    Library:Notify("No matching rarities selected to delete", 3)
                 end
                 isDeleting = false
                 return
             end
+
+            print(string.format(
+                "[Perks] Will DELETE %d | Common=%d Rare=%d Epic=%d Legendary=%d Secret=%d",
+                #toDelete,
+                deleteBreakdown.Common, deleteBreakdown.Rare, deleteBreakdown.Epic,
+                deleteBreakdown.Legendary, deleteBreakdown.Secret
+            ))
+            print("[Perks] Selected toggles:",
+                "Common=" .. tostring(targetRarities.Common),
+                "Rare=" .. tostring(targetRarities.Rare),
+                "Epic=" .. tostring(targetRarities.Epic),
+                "Legendary=" .. tostring(targetRarities.Legendary),
+                "Secret=" .. tostring(targetRarities.Secret)
+            )
 
             local deleted = 0
 
@@ -1084,11 +1152,16 @@ if IsLobbyLobby() then
             end
 
             if deleted > 0 or not silent then
-                Library:Notify(string.format("Deleted %d perks (batch)", deleted), 3)
+                Library:Notify(string.format("Deleted %d perks", deleted), 3)
             end
 
             isDeleting = false
         end
+
+        -- expose to Perk Counter tab / other scripts
+        getgenv().TownShip_RunDeletePerks = runDeletePerks
+        getgenv().TownShip_TargetRarities = targetRarities
+        getgenv().TownShip_CollectAllPerks = collectAllPerks
 
         -- UI
         PerkGroup:AddToggle("PerkDel_Common", {
@@ -1167,6 +1240,542 @@ if IsLobbyLobby() then
         end)
 
         PerkGroup:AddLabel("Uses batch delete (one remote)")
+    end)
+end
+
+-- ============================================================
+-- Auto Perk Counter (UI + rarity breakdown)
+-- Hide GUI → wait 1s → check → report Common/Rare/Epic/Legendary/Secret
+-- ============================================================
+if IsLobbyLobby() then
+    task.spawn(function()
+        while not Tabs.Session do task.wait(0.1) end
+        task.wait(0.45)
+
+        local PerkCountGroup = Tabs.Session:AddLeftGroupbox("Perk Counter")
+
+        local Cam = workspace.CurrentCamera
+
+        getgenv().LastPerkCount = getgenv().LastPerkCount or nil
+        getgenv().LastPerkMax = getgenv().LastPerkMax or nil
+        getgenv().LastPerkBreakdown = getgenv().LastPerkBreakdown or nil
+
+        -- Rarity lists (same as Auto Delete Perks)
+        local PerkRarityLists = {
+            Legendary = {
+                "Peerless Commander","Indefatigable","Tyrant's Stare","Invincible","Eviscerate",
+                "Font of Vitality","Flame Rhapsody","Robust","Sixth Sense","Gear Master",
+                "Carnifex","Munitions Master","Sanctified","Wind Rhapsody","Peerless Constitution",
+                "Exhumation","Warchief","Peerless Focus","Perfect Form","Courage Catalyst",
+                "Aegis","Unparalleled Strength","Perfect Soul"
+            },
+            Common = {
+                "Cripple","Lucky","Enhanced Metabolism","First Aid","Mighty",
+                "Fortitude","Hollow","Gear Beginner","Enduring"
+            },
+            Epic = {
+                "Munitions Expert","Gear Expert","Butcher","Resilient","Speedy",
+                "Reckless Abandon","Focus","Stalwart Durability","Adrenaline","Safeguard",
+                "Warrior","Solo","Mutilate","Trauma Battery","Hardy",
+                "Unbreakable","Siphoning","Flawed Release","Luminous","Peerless Strength"
+            },
+            Rare = {
+                "Blessed","Gear Intermediate","Unyielding","Fully Stocked","Forceful",
+                "Lightweight","Protection","Mangle","Experimental Shells","Critical Hunter",
+                "Tough","Heightened Vitality"
+            },
+            Secret = {
+                "Everlasting Flame","Heavenly Restriction","Adaptation","Maximum Firepower",
+                "Soulfeed","Kengo","Black Flash","Font of Inspiration","Explosive Fortune",
+                "Immortal","Art of War","Tatsujin","Founder's Blessing","Unwavering Belief"
+            },
+            Mythic = {
+                -- reserved if game adds mythic perks later
+            },
+        }
+
+        local PerkNameToRarity = {}
+        for rarity, list in pairs(PerkRarityLists) do
+            for _, name in ipairs(list) do
+                PerkNameToRarity[name] = rarity
+                PerkNameToRarity[string.lower(name)] = rarity
+            end
+        end
+
+        local function resolvePerkRarity(perkName)
+            if not perkName or perkName == "" then return "Common" end
+            if PerkNameToRarity[perkName] then return PerkNameToRarity[perkName] end
+            local lower = string.lower(perkName)
+            if PerkNameToRarity[lower] then return PerkNameToRarity[lower] end
+            -- soft match by known rarity keywords in remote data
+            return "Common"
+        end
+
+        local function collectPerksFromRemote()
+            local found = {}
+            local seen = {}
+            local ok, data = pcall(function()
+                return GET:InvokeServer("S_Equipment", "Talents")
+            end)
+            if not ok or type(data) ~= "table" then
+                return found
+            end
+
+            local function tryStorage(storage)
+                if type(storage) ~= "table" then return end
+                for uid, info in pairs(storage) do
+                    if type(uid) == "string" and #uid > 10 and not seen[uid] then
+                        local name = "Unknown"
+                        local rarityFromData = nil
+                        if type(info) == "table" then
+                            name = info.Name or info.Perk or info.Title or info.Id or "Unknown"
+                            rarityFromData = info.Rarity or info.Tier or info.Quality
+                        elseif type(info) == "string" then
+                            name = info
+                        end
+                        seen[uid] = true
+                        local rarity = nil
+                        if type(rarityFromData) == "string" and rarityFromData ~= "" then
+                            local r = rarityFromData
+                            -- normalize
+                            if r:lower():find("secret") then rarity = "Secret"
+                            elseif r:lower():find("myth") then rarity = "Mythic"
+                            elseif r:lower():find("legend") then rarity = "Legendary"
+                            elseif r:lower():find("epic") then rarity = "Epic"
+                            elseif r:lower():find("rare") then rarity = "Rare"
+                            elseif r:lower():find("common") then rarity = "Common"
+                            end
+                        end
+                        if not rarity then
+                            rarity = resolvePerkRarity(tostring(name))
+                        end
+                        table.insert(found, {
+                            id = uid,
+                            name = tostring(name),
+                            rarity = rarity
+                        })
+                    end
+                end
+            end
+
+            -- common paths
+            if data.Slots then
+                for _, slotKey in ipairs({"A", "B", "C", data.Current_Slot or "A"}) do
+                    local slot = data.Slots[slotKey]
+                    if slot and slot.Perks then
+                        tryStorage(slot.Perks.Storage)
+                        tryStorage(slot.Perks.Inventory)
+                        tryStorage(slot.Perks)
+                    end
+                end
+            end
+            tryStorage(data.Storage)
+            tryStorage(data.Perks)
+            tryStorage(data.Inventory)
+
+            -- deep soft scan for tables that look like perk storage
+            local function softScan(tbl, depth)
+                if type(tbl) ~= "table" or depth > 4 then return end
+                for k, v in pairs(tbl) do
+                    if type(k) == "string" and #k > 20 and type(v) == "table" and (v.Name or v.Perk or v.Title) then
+                        if not seen[k] then
+                            seen[k] = true
+                            local name = v.Name or v.Perk or v.Title or "Unknown"
+                            local rarity = resolvePerkRarity(tostring(name))
+                            if type(v.Rarity) == "string" then
+                                local r = v.Rarity:lower()
+                                if r:find("secret") then rarity = "Secret"
+                                elseif r:find("myth") then rarity = "Mythic"
+                                elseif r:find("legend") then rarity = "Legendary"
+                                elseif r:find("epic") then rarity = "Epic"
+                                elseif r:find("rare") then rarity = "Rare"
+                                elseif r:find("common") then rarity = "Common"
+                                end
+                            end
+                            table.insert(found, { id = k, name = tostring(name), rarity = rarity })
+                        end
+                    elseif type(v) == "table" then
+                        softScan(v, depth + 1)
+                    end
+                end
+            end
+            if #found == 0 then
+                softScan(data, 0)
+            end
+
+            return found
+        end
+
+        local function countByRarity(list)
+            local counts = {
+                Common = 0,
+                Rare = 0,
+                Epic = 0,
+                Legendary = 0,
+                Secret = 0,
+                Mythic = 0,
+                Unknown = 0,
+            }
+            for _, entry in ipairs(list) do
+                local r = entry.rarity or "Unknown"
+                if counts[r] ~= nil then
+                    counts[r] = counts[r] + 1
+                else
+                    counts.Unknown = counts.Unknown + 1
+                end
+            end
+            counts.Total = #list
+            return counts
+        end
+
+        local function formatBreakdown(counts)
+            return string.format(
+                "Total: %d\nCommon: %d\nRare: %d\nEpic: %d\nLegendary: %d\nSecret: %d\nMythic: %d",
+                counts.Total or 0,
+                counts.Common or 0,
+                counts.Rare or 0,
+                counts.Epic or 0,
+                counts.Legendary or 0,
+                counts.Secret or 0,
+                counts.Mythic or 0
+            )
+        end
+
+        local function clickXY(x, y)
+            pcall(function()
+                VIM:SendMouseMoveEvent(x, y, game)
+                task.wait(0.01)
+                VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
+                task.wait(0.03)
+                VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
+            end)
+        end
+
+        local function fire(obj)
+            if not obj then return end
+            pcall(function()
+                if firesignal then
+                    pcall(function() firesignal(obj.Activated) end)
+                    pcall(function() firesignal(obj.MouseButton1Click) end)
+                    pcall(function() firesignal(obj.MouseButton1Down) end)
+                end
+                local inset = GuiService:GetGuiInset()
+                local size = obj.AbsoluteSize
+                if size.X > 1 and size.Y > 1 then
+                    local pos = obj.AbsolutePosition
+                    clickXY(pos.X + size.X / 2 + inset.X, pos.Y + size.Y / 2 + inset.Y)
+                end
+            end)
+        end
+
+        local function getPath(parts)
+            local cur = Player.PlayerGui
+            for _, name in ipairs(parts) do
+                if not cur then return nil end
+                cur = cur:FindFirstChild(name)
+            end
+            return cur
+        end
+
+        local function parseLimit(text)
+            if type(text) ~= "string" then return nil, nil end
+            local a = text:match("(%d+[%,%d]*)%s*/")
+            local b = text:match("/%s*(%d+[%,%d]*)")
+            local cur = a and tonumber((a:gsub(",", ""))) or nil
+            local max = b and tonumber((b:gsub(",", ""))) or nil
+            if max and max < 50 then
+                max = nil
+            end
+            return cur, max
+        end
+
+        local function getLimitLabel()
+            return getPath({"Interface", "Equipment", "Perk", "Limit"})
+        end
+
+        local function readLive()
+            local label = getLimitLabel()
+            if not label then return nil, nil, nil end
+            local cur, max = parseLimit(label.Text)
+            return cur, max, label.Text
+        end
+
+        local function openEquipmentPerks()
+            local equipTab =
+                getPath({"Interface", "Topbar", "Main", "Categories", "Equipment"})
+                or getPath({"Interface", "Topbar", "Main", "Equipment"})
+            fire(equipTab)
+            task.wait(0.3)
+
+            local perksCat = getPath({"Interface", "Equipment", "Categories", "Perks"})
+            if perksCat then
+                local target =
+                    perksCat:FindFirstChild("Interact", true)
+                    or perksCat:FindFirstChild("Main")
+                    or perksCat
+                fire(target)
+            end
+            task.wait(0.35)
+
+            fire(getPath({"Interface", "Equipment", "Perk", "Buttons", "Equip_Perk"}))
+            task.wait(0.15)
+        end
+
+        local function clickOrbitArea()
+            local vp = Cam.ViewportSize
+            local cx, cy = vp.X * 0.5, vp.Y * 0.52
+            local points = {}
+
+            for r = 70, 240, 15 do
+                for ang = -50, 50, 10 do
+                    local rad = math.rad(ang)
+                    table.insert(points, {
+                        cx + math.cos(rad) * r,
+                        cy + math.sin(rad) * r * 0.75
+                    })
+                end
+            end
+
+            for r = 90, 180, 30 do
+                for ang = 130, 230, 20 do
+                    local rad = math.rad(ang)
+                    table.insert(points, {
+                        cx + math.cos(rad) * r,
+                        cy + math.sin(rad) * r * 0.75
+                    })
+                end
+            end
+
+            for i, p in ipairs(points) do
+                clickXY(p[1], p[2])
+                task.wait(0.02)
+                local cur, max, raw = readLive()
+                if cur and max then
+                    return cur, max, raw, i
+                end
+            end
+            return nil, nil, nil, nil
+        end
+
+        local function closePerkPanel()
+            local closeBtn = getPath({"Interface", "Equipment", "Perk", "Perk_Close"})
+            if closeBtn then
+                fire(closeBtn)
+            end
+        end
+
+        local function hideMenu()
+            pcall(function()
+                if getgenv().isUIHidden and getgenv().hideUI then
+                    if not getgenv().isUIHidden() then
+                        getgenv().hideUI()
+                    end
+                elseif Library and Library.Toggle and Window and Window.Holder and Window.Holder.Visible then
+                    Library:Toggle()
+                end
+            end)
+        end
+
+        local function restoreMenu()
+            pcall(function()
+                if getgenv().showUI then
+                    getgenv().showUI()
+                elseif Library and Library.Toggle and Window and Window.Holder and not Window.Holder.Visible then
+                    Library:Toggle()
+                end
+            end)
+        end
+
+        local function CheckPerks(keepOpen)
+            -- UI-only count (no S_Equipment Talents here)
+            print("[Perks] UI check start...")
+
+            hideMenu()
+            task.wait(1)
+
+            openEquipmentPerks()
+
+            local cur, max, raw = readLive()
+            print("[Perks] After open:", raw)
+
+            if not (cur and max) then
+                print("[Perks] Clicking orbit slots...")
+                local hitIndex
+                cur, max, raw, hitIndex = clickOrbitArea()
+                if hitIndex then
+                    print("[Perks] Hit at point #", hitIndex)
+                end
+            end
+
+            if not keepOpen then
+                closePerkPanel()
+            end
+
+            if cur and max then
+                getgenv().LastPerkCount = cur
+                getgenv().LastPerkMax = max
+            end
+
+            restoreMenu()
+
+            if cur and max then
+                Library:Notify(string.format("Perks: %d / %d", cur, max), 4)
+                print(string.format("[Perks] UI SUCCESS => %d / %d", cur, max))
+            else
+                Library:Notify("Failed to read perk count (UI)", 3)
+                print("[Perks] UI FAILED")
+            end
+
+            return cur, max
+        end
+
+        -- UI check → then delete selected rarities
+        local autoCheckDelete = false
+        local autoCheckDeleteBusy = false
+
+        local function CheckThenDeleteSelected(silent)
+            if autoCheckDeleteBusy then return end
+            autoCheckDeleteBusy = true
+
+            print("[Perks] Auto: UI check + delete selected...")
+            local ok, err = pcall(function()
+                CheckPerks(false)
+                task.wait(0.35)
+
+                local runner = getgenv().TownShip_RunDeletePerks
+                if type(runner) ~= "function" then
+                    if not silent then
+                        Library:Notify("Delete pipeline not ready", 3)
+                    end
+                    warn("[Perks] TownShip_RunDeletePerks missing")
+                    return
+                end
+
+                pcall(function()
+                    local tr = getgenv().TownShip_TargetRarities
+                    if type(tr) == "table" and Options then
+                        if Options.PerkDel_Common then tr.Common = Options.PerkDel_Common.Value end
+                        if Options.PerkDel_Rare then tr.Rare = Options.PerkDel_Rare.Value end
+                        if Options.PerkDel_Epic then tr.Epic = Options.PerkDel_Epic.Value end
+                        if Options.PerkDel_Legendary then tr.Legendary = Options.PerkDel_Legendary.Value end
+                        if Options.PerkDel_Secret then tr.Secret = Options.PerkDel_Secret.Value end
+                    end
+                end)
+
+                runner(silent == true)
+            end)
+            if not ok then
+                warn("[Perks] CheckThenDelete error:", err)
+            end
+
+            autoCheckDeleteBusy = false
+        end
+
+        -- API
+        getgenv().CheckPerks = CheckPerks
+        getgenv().CheckThenDeleteSelected = CheckThenDeleteSelected
+        getgenv().GetPerkCount = function()
+            local c = CheckPerks(false)
+            return c
+        end
+        getgenv().GetPerkMax = function()
+            CheckPerks(false)
+            return getgenv().LastPerkMax
+        end
+        getgenv().IsPerksMaxed = function()
+            local c, m = CheckPerks(false)
+            if c and m then
+                return c >= m
+            end
+            return false
+        end
+
+        PerkCountGroup:AddButton("Check Perk Count", function()
+            task.spawn(function()
+                CheckPerks(false)
+            end)
+        end)
+
+        -- Toggle: run Check+Delete ONCE per lobby visit (not looping)
+        local ranThisLobby = false
+        local wasInLobby = false
+
+        PerkCountGroup:AddToggle("AutoCheckDelete", {
+            Text = "Auto Check + Delete Selected",
+            Default = false,
+            Callback = function(v)
+                autoCheckDelete = v
+                if v then
+                    ranThisLobby = false
+                    wasInLobby = false
+                    Library:Notify("Auto Check+Delete ON (once per lobby)", 3)
+                    task.spawn(function()
+                        while autoCheckDelete do
+                            local inLobby = false
+                            pcall(function()
+                                inLobby = IsLobbyLobby and IsLobbyLobby() or false
+                            end)
+
+                            if inLobby then
+                                -- first time we detect lobby this visit → run once
+                                if not wasInLobby then
+                                    ranThisLobby = false
+                                end
+                                wasInLobby = true
+
+                                if not ranThisLobby and not autoCheckDeleteBusy then
+                                    ranThisLobby = true
+                                    print("[Perks] Once-per-lobby run starting...")
+                                    CheckThenDeleteSelected(true)
+                                    print("[Perks] Once-per-lobby run finished (will not repeat until you leave & re-enter lobby)")
+                                end
+                            else
+                                -- left lobby → allow one run next time we enter
+                                if wasInLobby then
+                                    print("[Perks] Left lobby — next enter will run once")
+                                end
+                                wasInLobby = false
+                                ranThisLobby = false
+                            end
+
+                            task.wait(1.5)
+                        end
+                    end)
+                else
+                    Library:Notify("Auto Check+Delete OFF", 2)
+                end
+            end
+        })
+
+        PerkCountGroup:AddButton("Show Cache / IDs", function()
+            local c = getgenv().LastPerkCount
+            local m = getgenv().LastPerkMax
+            local ids = getgenv().CachedPerkIds or getgenv().LastDeletePerkIds
+            local list = getgenv().LastPerkList or getgenv().CachedPerkList
+
+            if c and m then
+                Library:Notify(string.format("UI Count: %d / %d", c, m), 3)
+            end
+
+            if type(list) == "table" and #list > 0 then
+                print(string.format("[Perks] Cache list = %d entries", #list))
+                for i, e in ipairs(list) do
+                    print(string.format("[%03d] %s | %s | %s", i, tostring(e.id), tostring(e.name), tostring(e.rarity)))
+                end
+                Library:Notify(string.format("Printed %d perks to console", #list), 4)
+            elseif type(ids) == "table" and #ids > 0 then
+                print(string.format("[Perks] Cache IDs = %d", #ids))
+                for i, id in ipairs(ids) do
+                    print(string.format("[%03d] %s", i, tostring(id)))
+                end
+                Library:Notify(string.format("Printed %d IDs to console", #ids), 4)
+            else
+                Library:Notify("No perk list in memory yet", 3)
+            end
+        end)
+
+        PerkCountGroup:AddLabel("Toggle: UI check → delete selected rarities")
+        print("[Perks] Auto Check+Delete toggle ready")
     end)
 end
 
@@ -10661,6 +11270,247 @@ if Tabs.Webhook then
         end
         return formatted
     end
+
+    -- ===== Mission Timer helpers for webhook =====
+    local function formatMissionTimer(seconds)
+        if type(seconds) == "string" then
+            -- already formatted like "12:34" or "1:02:03"
+            if seconds:match("^%d+:%d%d:%d%d$") or seconds:match("^%d+:%d%d$") then
+                return seconds
+            end
+            local n = tonumber(seconds:match("[%d%.]+"))
+            if n then seconds = n else return seconds end
+        end
+        if type(seconds) ~= "number" or seconds < 0 then
+            return "00:00"
+        end
+        -- if value looks like milliseconds, convert
+        if seconds > 100000 then
+            seconds = seconds / 1000
+        end
+        seconds = math.floor(seconds)
+        local h = math.floor(seconds / 3600)
+        local m = math.floor((seconds % 3600) / 60)
+        local s = seconds % 60
+        if h > 0 then
+            return string.format("%02d:%02d:%02d", h, m, s)
+        end
+        return string.format("%02d:%02d", m, s)
+    end
+
+    local function parseTimeValue(v)
+        if type(v) == "number" and v > 0 then
+            return v
+        end
+        if type(v) == "string" and v ~= "" and v ~= "0" and v ~= "00:00" then
+            -- normalize roman-looking I from some fonts → digit 1
+            local cleaned = v:gsub("[Ii]", "1"):gsub("%s+", "")
+            local h, m, s = cleaned:match("^(%d+):(%d+):(%d+)$")
+            if h then
+                return tonumber(h) * 3600 + tonumber(m) * 60 + tonumber(s)
+            end
+            local mm, ss = cleaned:match("^(%d+):(%d+)$")
+            if mm then
+                return tonumber(mm) * 60 + tonumber(ss)
+            end
+            local n = tonumber(cleaned:match("[%d%.]+"))
+            if n and n > 0 then
+                return n
+            end
+        end
+        return nil
+    end
+
+    -- Read TIME TAKEN directly from Rewards UI (most accurate — what the game shows)
+    local function readTimeTakenFromUI()
+        local player = game:GetService("Players").LocalPlayer
+        if not player or not player.PlayerGui then return nil end
+
+        local statsFrame = nil
+        pcall(function()
+            statsFrame = player.PlayerGui.Interface.Rewards.Main.Info.Main.Stats
+        end)
+        if not statsFrame then
+            local sf, _ = findUIElements()
+            statsFrame = sf
+        end
+        if not statsFrame then return nil end
+
+        -- Preferred: frame named Time_Taken / TimeTaken / Time
+        local preferredNames = {
+            "Time_Taken", "TimeTaken", "Time", "TIME_TAKEN", "Timer", "Duration"
+        }
+        for _, name in ipairs(preferredNames) do
+            local frame = statsFrame:FindFirstChild(name)
+            if frame then
+                local amount = frame:FindFirstChild("Amount") or frame:FindFirstChild("Value") or frame:FindFirstChild("Text")
+                if amount and amount:IsA("TextLabel") and amount.Text and amount.Text ~= "" then
+                    local parsed = parseTimeValue(amount.Text)
+                    if parsed then return parsed, amount.Text end
+                    return nil, amount.Text
+                end
+                -- sometimes the frame itself is a TextLabel
+                if frame:IsA("TextLabel") and frame.Text and frame.Text:find(":") then
+                    local parsed = parseTimeValue(frame.Text)
+                    if parsed then return parsed, frame.Text end
+                end
+            end
+        end
+
+        -- Scan all stat frames for time-like values or labels containing TIME
+        for _, v in ipairs(statsFrame:GetChildren()) do
+            if v:IsA("Frame") or v:IsA("TextLabel") then
+                local nameLower = string.lower(v.Name or "")
+                local amount = v:FindFirstChild("Amount") or v:FindFirstChild("Value")
+                local statLabel = v:FindFirstChild("Stat") or v:FindFirstChild("Title") or v:FindFirstChild("Name")
+                local amountText = amount and amount:IsA("TextLabel") and amount.Text or nil
+                local labelText = statLabel and statLabel:IsA("TextLabel") and statLabel.Text or ""
+
+                local isTimeRow = nameLower:find("time") or nameLower:find("duration") or nameLower:find("timer")
+                    or (type(labelText) == "string" and (labelText:upper():find("TIME") or labelText:upper():find("DURATION")))
+
+                if isTimeRow and amountText and amountText ~= "" then
+                    local parsed = parseTimeValue(amountText)
+                    if parsed then return parsed, amountText end
+                    return nil, amountText
+                end
+
+                -- amount text itself looks like MM:SS
+                if amountText and amountText:match("%d+:%d+") then
+                    local parsed = parseTimeValue(amountText)
+                    if parsed then return parsed, amountText end
+                end
+            end
+        end
+
+        -- Deep scan under Rewards for any TextLabel showing MM:SS near "TIME"
+        local rewards = nil
+        pcall(function()
+            rewards = player.PlayerGui.Interface.Rewards
+        end)
+        if rewards then
+            local best = nil
+            pcall(function()
+                for _, d in ipairs(rewards:GetDescendants()) do
+                    if d:IsA("TextLabel") and d.Text then
+                        local t = d.Text
+                        if t:match("^%d+:%d%d$") or t:match("^%d+:%d%d:%d%d$") then
+                            local parentName = string.lower(tostring(d.Parent and d.Parent.Name or ""))
+                            if parentName:find("time") or parentName:find("amount") or parentName:find("stat") then
+                                best = t
+                                break
+                            end
+                            if not best then best = t end
+                        end
+                    end
+                end
+            end)
+            if best then
+                local parsed = parseTimeValue(best)
+                if parsed then return parsed, best end
+                return nil, best
+            end
+        end
+
+        return nil
+    end
+
+    local function extractTimeFromRewardData(rewardData)
+        if type(rewardData) ~= "table" then return nil end
+
+        local candidates = {
+            rewardData.Time,
+            rewardData.Timer,
+            rewardData.Duration,
+            rewardData.Elapsed,
+            rewardData.ClearTime,
+            rewardData.Clear_Time,
+            rewardData.TimeTaken,
+            rewardData.Time_Taken,
+            rewardData.MissionTime,
+            rewardData.Mission_Time,
+            rewardData.CompletedTime,
+            rewardData.Completed_Time,
+            rewardData.PlayTime,
+            rewardData.Play_Time,
+            rewardData.Stats and rewardData.Stats.Time,
+            rewardData.Stats and rewardData.Stats.Timer,
+            rewardData.Stats and rewardData.Stats.Duration,
+            rewardData.Stats and rewardData.Stats.Elapsed,
+            rewardData.Stats and rewardData.Stats.ClearTime,
+            rewardData.Stats and rewardData.Stats.TimeTaken,
+            rewardData.Stats and rewardData.Stats.Time_Taken,
+            rewardData.Stats and rewardData.Stats.PlayTime,
+            rewardData.Obtained and rewardData.Obtained.Time,
+            rewardData.Obtained and rewardData.Obtained.Duration,
+            rewardData.Info and rewardData.Info.Time,
+            rewardData.Info and rewardData.Info.Duration,
+            rewardData.Result and rewardData.Result.Time,
+            rewardData.Result and rewardData.Result.Duration,
+        }
+
+        for _, v in ipairs(candidates) do
+            local parsed = parseTimeValue(v)
+            if parsed then return parsed end
+        end
+
+        -- Soft scan: any key containing "time" / "duration" / "elapsed"
+        local function softScan(tbl, depth)
+            if type(tbl) ~= "table" or depth > 3 then return nil end
+            for k, v in pairs(tbl) do
+                local key = string.lower(tostring(k))
+                if key:find("time") or key:find("duration") or key:find("elapsed") or key:find("clear") then
+                    local parsed = parseTimeValue(v)
+                    if parsed then return parsed end
+                end
+                if type(v) == "table" then
+                    local nested = softScan(v, depth + 1)
+                    if nested then return nested end
+                end
+            end
+            return nil
+        end
+
+        return softScan(rewardData, 0)
+    end
+
+    local function getMissionElapsedForWebhook(rewardData)
+        -- 1) UI TIME TAKEN (what the game shows on rewards screen)
+        local uiSeconds, uiRaw = readTimeTakenFromUI()
+        if uiSeconds and uiSeconds > 0 then
+            return uiSeconds, uiRaw
+        end
+        if type(uiRaw) == "string" and uiRaw ~= "" then
+            return parseTimeValue(uiRaw) or 0, uiRaw
+        end
+
+        -- 2) S_Rewards remote data
+        local fromRewards = extractTimeFromRewardData(rewardData)
+        if fromRewards and fromRewards > 0 then
+            return fromRewards
+        end
+
+        -- 3) Local farm timer fallback
+        if getgenv().FarmTimerStarted and getgenv().FarmStartTime then
+            return tick() - getgenv().FarmStartTime
+        end
+        if getgenv().FarmStartTime then
+            return tick() - getgenv().FarmStartTime
+        end
+        return 0
+    end
+
+    local function getMissionTimerDisplay(rewardData)
+        local seconds, raw = getMissionElapsedForWebhook(rewardData)
+        if type(raw) == "string" and raw:match("%d+:%d+") then
+            -- keep original UI text if it's already MM:SS
+            local cleaned = raw:gsub("[Ii]", "1"):gsub("%s+", "")
+            if cleaned:match("^%d+:%d%d$") or cleaned:match("^%d+:%d%d:%d%d$") then
+                return cleaned
+            end
+        end
+        return formatMissionTimer(seconds)
+    end
     
     -- ===== ฟังก์ชันดึงข้อมูล Reward แบบเรียลไทม์ =====
     local function getRealTimeRewardData()
@@ -10712,23 +11562,29 @@ if Tabs.Webhook then
         local rewardData = getRealTimeRewardData()
         
         if not rewardData then
-            -- Fallback: ใช้ข้อมูลจาก UI
+            -- Fallback: read from Rewards UI
             local statsFrame, _ = findUIElements()
             local stats = {}
             if statsFrame then
                 for _, v in ipairs(statsFrame:GetChildren()) do
-                    if v:IsA("Frame") and v:FindFirstChild("Stat") and v:FindFirstChild("Amount") then
-                        local statName = string.gsub(v.Name, "_", " ")
-                        stats[statName] = v.Amount.Text
+                    if v:IsA("Frame") then
+                        local amount = v:FindFirstChild("Amount")
+                        if amount and amount:IsA("TextLabel") then
+                            local statName = string.gsub(v.Name, "_", " ")
+                            stats[statName] = amount.Text
+                            stats[string.lower(statName)] = amount.Text
+                            stats[v.Name] = amount.Text
+                        end
                     end
                 end
             end
             
             local rewardsUI = getAllRewards()
-            local kills = stats["Kills"] or 0
-            local crits = stats["Crits"] or 0
-            local damage = stats["Damage"] or "0"
-            local damageNum = tonumber(damage:gsub("[^%d.]", "")) or 0
+            local kills = stats["Titans Killed"] or stats["titans killed"] or stats["Titans_Killed"] or stats["Kills"] or stats["kills"] or 0
+            local crits = stats["Critical Hits"] or stats["critical hits"] or stats["Critical_Hits"] or stats["Crits"] or stats["crits"] or 0
+            local damage = stats["Damage Dealt"] or stats["damage dealt"] or stats["Damage_Dealt"] or stats["Damage"] or stats["damage"] or "0"
+            local damageNum = tonumber(tostring(damage):gsub("[^%d.]", "")) or 0
+            local missionTimerStr = getMissionTimerDisplay(nil)
             
             local xp, gold, gems, shards = 0, 0, 0, 0
             for _, item in ipairs(rewardsUI) do
@@ -10756,10 +11612,10 @@ if Tabs.Webhook then
                     title = string.format("[%s] %s", statusTitle, player.Name),
                     color = color,
                     fields = {
-                        { name = "STATS", value = string.format("Kills: %s\nCrits: %s\nDamage: %s", kills, crits, formatNumberWithComma(damageNum)), inline = false },
+                        { name = "STATS", value = string.format("Time: %s\nKills: %s\nCrits: %s\nDamage: %s", missionTimerStr, kills, crits, formatNumberWithComma(damageNum)), inline = false },
                         { name = "REWARDS", value = string.format("XP: %s\nGold: %s\nGems: %s\nShards: %s", formatNumberWithComma(xp), formatNumberWithComma(gold), formatNumberWithComma(gems), formatNumberWithComma(shards)), inline = false },
                         { name = "PERKS", value = perksList, inline = false },
-                        { name = "INFO", value = string.format("User: %s\nExecutor: %s\nGames Played: %d\nGold: %s\nGems: %s", player.Name, executor, gamesPlayed, formatNumberWithComma(totalData.Gold), formatNumberWithComma(totalData.Gems)), inline = false }
+                        { name = "INFO", value = string.format("User: %s\nExecutor: %s\nGames Played: %d\nGold: %s\nGems: %s\nMission Timer: %s", player.Name, executor, gamesPlayed, formatNumberWithComma(totalData.Gold), formatNumberWithComma(totalData.Gems), missionTimerStr), inline = false }
                     },
                     footer = { text = "TownShip • " .. os.date("%Y-%m-%d %H:%M:%S") },
                     timestamp = DateTime.now():ToIsoDate()
@@ -10775,6 +11631,7 @@ if Tabs.Webhook then
         local kills = rewardData.Stats and rewardData.Stats.Kills or 0
         local crits = rewardData.Stats and rewardData.Stats.Crits or 0
         local damage = rewardData.Stats and rewardData.Stats.Damage or 0
+        local missionTimerStr = getMissionTimerDisplay(rewardData)
         
         local xp = rewardData.Obtained and rewardData.Obtained.XP or 0
         local gold = rewardData.Obtained and rewardData.Obtained.Gold or 0
@@ -10811,10 +11668,10 @@ if Tabs.Webhook then
                 title = string.format("[%s] %s", statusTitle, player.Name),
                 color = color,
                 fields = {
-                    { name = "STATS", value = string.format("Kills: %s\nCrits: %s\nDamage: %s", kills, crits, formatNumberWithComma(damage)), inline = false },
+                    { name = "STATS", value = string.format("Kills: %s\nCrits: %s\nDamage: %s\nTime: %s", kills, crits, formatNumberWithComma(damage), missionTimerStr), inline = false },
                     { name = "REWARDS", value = string.format("XP: %s\nGold: %s\nGems: %s\nShards: %s", formatNumberWithComma(xp), formatNumberWithComma(gold), formatNumberWithComma(gems), formatNumberWithComma(shards)), inline = false },
                     { name = "PERKS", value = perksList, inline = false },
-                    { name = "INFO", value = string.format("User: %s\nExecutor: %s\nGames Played: %d\nGold: %s\nGems: %s", player.Name, executor, gamesPlayed, formatNumberWithComma(totalData.Gold), formatNumberWithComma(totalData.Gems)), inline = false }
+                    { name = "INFO", value = string.format("User: %s\nExecutor: %s\nGames Played: %d\nGold: %s\nGems: %s\nMission Timer: %s", player.Name, executor, gamesPlayed, formatNumberWithComma(totalData.Gold), formatNumberWithComma(totalData.Gems), missionTimerStr), inline = false }
                 },
                 footer = { text = "TownShip • " .. os.date("%Y-%m-%d %H:%M:%S") },
                 timestamp = DateTime.now():ToIsoDate()
@@ -10995,15 +11852,27 @@ if Tabs.Webhook then
         if not serverData or not serverData.Slots then return end
         local slot = serverData.Slots[serverData.Current_Slot or "A"]
         if not slot then return end
+
+        -- Prefer UI TIME TAKEN, then S_Rewards
+        local rewardDataForTimer = getRealTimeRewardData()
+        local timerStr = getMissionTimerDisplay(rewardDataForTimer)
+
         local fields = {}
         if serverData.Map then
             local modsText = formatModifiersText(serverData.Map.Modifiers)
-            local mapValue = string.format("Map: %s\nDifficulty: %s\nObjective: %s\n\nModifiers:\n%s",
+            local mapValue = string.format("Map: %s\nDifficulty: %s\nObjective: %s\nMission Timer: %s\n\nModifiers:\n%s",
                 serverData.Map.Map or "Unknown",
                 serverData.Map.Difficulty or "Unknown",
                 serverData.Map.Objective or "Unknown",
+                timerStr,
                 modsText)
             table.insert(fields, {name = "Mission Info", value = mapValue, inline = false})
+        else
+            table.insert(fields, {
+                name = "Mission Timer",
+                value = timerStr,
+                inline = true
+            })
         end
         if filters.Currency then
             table.insert(fields, {name = "Currency", value = string.format("Gold: %s\nGems: %s\nCanes: %s\nShards: %s",
