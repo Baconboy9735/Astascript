@@ -1500,7 +1500,159 @@ if IsLobbyLobby() then
             return cur, max, label.Text
         end
 
+        local function isVisible(obj)
+            if not obj then return false end
+            local ok, vis = pcall(function()
+                if not obj:IsA("GuiObject") then return false end
+                if not obj.Visible then return false end
+                if obj.AbsoluteSize.X < 4 or obj.AbsoluteSize.Y < 4 then return false end
+                -- ancestors must be visible too
+                local p = obj
+                while p do
+                    if p:IsA("GuiObject") and p.Visible == false then return false end
+                    if p:IsA("ScreenGui") and p.Enabled == false then return false end
+                    p = p.Parent
+                end
+                return true
+            end)
+            return ok and vis
+        end
+
+        -- Strict: need visible Equipment category on topbar (default view has SWITCH LOBBY only)
+        local function isEquipmentUIReady()
+            local equipTab =
+                getPath({"Interface", "Topbar", "Main", "Categories", "Equipment"})
+                or getPath({"Interface", "Topbar", "Main", "Equipment"})
+            if isVisible(equipTab) then return true end
+
+            local cats = getPath({"Interface", "Topbar", "Main", "Categories"})
+            if cats and isVisible(cats) then
+                for _, ch in ipairs(cats:GetChildren()) do
+                    local n = string.lower(ch.Name)
+                    if (n:find("equip") or n:find("gear")) and isVisible(ch) then
+                        return true
+                    end
+                end
+            end
+            return false
+        end
+
+        local function pressTab()
+            print("[Perks] Pressing Tab key...")
+            pcall(function()
+                -- several methods for different executors
+                VIM:SendKeyEvent(true, Enum.KeyCode.Tab, false, game)
+                task.wait(0.05)
+                VIM:SendKeyEvent(false, Enum.KeyCode.Tab, false, game)
+            end)
+            task.wait(0.05)
+            pcall(function()
+                VIM:SendKeyEvent(true, Enum.KeyCode.Tab, false, game)
+                task.wait(0.05)
+                VIM:SendKeyEvent(false, Enum.KeyCode.Tab, false, game)
+            end)
+            -- keycode number fallback (9 = Tab)
+            pcall(function()
+                VIM:SendKeyEvent(true, 9, false, game)
+                task.wait(0.05)
+                VIM:SendKeyEvent(false, 9, false, game)
+            end)
+        end
+
+        local function clickSwitchLobbyButton()
+            local pg = Player and Player:FindFirstChild("PlayerGui")
+            if not pg then return false end
+
+            local candidates = {}
+            for _, d in ipairs(pg:GetDescendants()) do
+                local text = nil
+                pcall(function()
+                    if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+                        text = d.Text
+                    end
+                end)
+                if type(text) == "string" then
+                    local up = text:upper()
+                    if up:find("SWITCH") and up:find("LOBBY") then
+                        table.insert(candidates, d)
+                    end
+                end
+                -- also match by name
+                if d.Name:upper():find("SWITCH") and d.Name:upper():find("LOBBY") then
+                    table.insert(candidates, d)
+                end
+            end
+
+            for _, d in ipairs(candidates) do
+                local clickTarget = d
+                -- climb to a clickable parent
+                local p = d
+                for _ = 1, 4 do
+                    if not p then break end
+                    if p:IsA("TextButton") or p:IsA("ImageButton") then
+                        clickTarget = p
+                        break
+                    end
+                    p = p.Parent
+                end
+                if isVisible(clickTarget) or isVisible(d) then
+                    print("[Perks] Clicking SWITCH LOBBY:", clickTarget:GetFullName())
+                    fire(clickTarget)
+                    fire(d)
+                    return true
+                end
+            end
+
+            -- last resort: click any found even if visibility check failed
+            if #candidates > 0 then
+                local d = candidates[1]
+                print("[Perks] Force click SWITCH LOBBY:", d:GetFullName())
+                fire(d)
+                if d.Parent then fire(d.Parent) end
+                return true
+            end
+            return false
+        end
+
+        local function ensureEquipmentLobby()
+            if isEquipmentUIReady() then
+                print("[Perks] Equipment UI already visible")
+                return true
+            end
+
+            print("[Perks] Equipment NOT visible (default view) — will SWITCH LOBBY / Tab")
+
+            -- 1) click button if found
+            local clicked = clickSwitchLobbyButton()
+            print("[Perks] SWITCH LOBBY button clicked:", clicked)
+            task.wait(0.9)
+            if isEquipmentUIReady() then
+                print("[Perks] Equipment ready after button")
+                return true
+            end
+
+            -- 2) Tab key x3 with waits
+            for i = 1, 3 do
+                pressTab()
+                task.wait(0.7)
+                if isEquipmentUIReady() then
+                    print("[Perks] Equipment ready after Tab #" .. i)
+                    return true
+                end
+            end
+
+            -- 3) try button again after tabs
+            clickSwitchLobbyButton()
+            task.wait(0.8)
+
+            local ready = isEquipmentUIReady()
+            print("[Perks] Equipment ready final:", ready)
+            return ready
+        end
+
         local function openEquipmentPerks()
+            ensureEquipmentLobby()
+
             local equipTab =
                 getPath({"Interface", "Topbar", "Main", "Categories", "Equipment"})
                 or getPath({"Interface", "Topbar", "Main", "Equipment"})
