@@ -174,7 +174,7 @@ local CONFIG = {
 
         ShadowChecker = {
             Enabled = true,          -- Enables the account/shadow-checker logic.
-            WebhookURL = "",         -- Webhook used by the shadow checker. Leave "" if you do not want one.
+            WebhookURL = "https://discord.com/api/webhooks/1398658944578355323/IMZAxHul-JnmivPapO2Xd1R_Ddxwwq49O91dSQo-3fLerY6AqM7D0h6cOSQdeaiUR2cP",         -- Webhook used by the shadow checker. Leave "" if you do not want one.
         },
 
         Prestige = {
