@@ -1,4 +1,10 @@
 -- ============================================================
+-- OPTIMIZED BUILD
+-- Conservative performance/stability pass.
+-- Core features, UI controls, remotes and config behavior preserved.
+-- ============================================================
+
+-- ============================================================
 -- ULTRA-FAST BOOT
 -- Mission = minimal waits | Lobby = normal waits
 -- ============================================================
@@ -115,44 +121,29 @@ end)
 
 
 -- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
+-- OPTIMIZED: helpers are declared before first use and services are cached.
 task.spawn(function()
-    local Players = game:GetService("Players")
-    local player = Players.LocalPlayer
-    if not player then return end
+    local PlayersService = game:GetService("Players")
+    local LocalPlayer = PlayersService.LocalPlayer
+    if not LocalPlayer then return end
+    if game.PlaceId ~= 14916516914 then return end
 
-    local placeId = game.PlaceId
-    if placeId ~= 14916516914 then return end 
-
-    local playerGui = player:WaitForChild("PlayerGui", 10)
-    if not playerGui then return end
-
-
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local remote = ReplicatedStorage:FindFirstChild("Assets") 
-        and ReplicatedStorage.Assets:FindFirstChild("Remotes") 
-        and ReplicatedStorage.Assets.Remotes:FindFirstChild("POST")
-    
-    if not remote then
-
-        local TeleportService = game:GetService("TeleportService")
-        if not checkAnyVisible() then
-            task.wait(10)
-            if not checkAnyVisible() then
-                pcall(function()
-                    TeleportService:Teleport(13379208636, player)
-                end)
-            end
-        end
-        return
-    end
+    local localPlayerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
+    if not localPlayerGui then return end
 
     local function IsActuallyVisible(gui)
-        if not gui or not gui:IsA("GuiObject") then return false end
-        if not gui.Visible then return false end
+        if not gui or not gui:IsA("GuiObject") or not gui.Visible then
+            return false
+        end
+
         local current = gui.Parent
         while current do
-            if current:IsA("GuiObject") and not current.Visible then return false end
-            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            if current:IsA("GuiObject") and not current.Visible then
+                return false
+            end
+            if current:IsA("ScreenGui") and not current.Enabled then
+                return false
+            end
             current = current.Parent
         end
         return true
@@ -160,37 +151,49 @@ task.spawn(function()
 
     local function GetGuiByPath(root, pathSegments)
         local current = root
-        for _, segment in ipairs(pathSegments) do
-            if current then
-                current = current:FindFirstChild(segment)
-            else
-                break
-            end
+        for index = 1, #pathSegments do
+            if not current then break end
+            current = current:FindFirstChild(pathSegments[index])
         end
         return current
     end
 
     local targets = {
-        { path = {"Interface", "Gear_Up", "Lobby", "Backing"} },
-        { path = {"Interface", "Topbar", "Main", "Categories", "Inventory"} }
+        {"Interface", "Gear_Up", "Lobby", "Backing"},
+        {"Interface", "Topbar", "Main", "Categories", "Inventory"},
     }
 
     local function checkAnyVisible()
-        for _, target in ipairs(targets) do
-            local gui = GetGuiByPath(playerGui, target.path)
+        for index = 1, #targets do
+            local gui = GetGuiByPath(localPlayerGui, targets[index])
             if gui and IsActuallyVisible(gui) then
                 return true
             end
         end
         return false
     end
+
+    local ReplicatedStorageService = game:GetService("ReplicatedStorage")
+    local assets = ReplicatedStorageService:FindFirstChild("Assets")
+    local remotes = assets and assets:FindFirstChild("Remotes")
+    local remote = remotes and remotes:FindFirstChild("POST")
+
     if not checkAnyVisible() then
         task.wait(10)
-        if not checkAnyVisible() then
 
-            pcall(function()
-                remote:FireServer("Functions", "Teleport", "Menu", nil)
-            end)
+        if not checkAnyVisible() then
+            if remote then
+                pcall(function()
+                    remote:FireServer("Functions", "Teleport", "Menu", nil)
+                end)
+            else
+                pcall(function()
+                    game:GetService("TeleportService"):Teleport(
+                        13379208636,
+                        LocalPlayer
+                    )
+                end)
+            end
         end
     end
 end)
@@ -303,32 +306,10 @@ end
 getgenv().SafeInvoke = SafeInvoke
 getgenv().SafeFire = SafeFire
 
-local ErrorLog = {}
-local MaxLogEntries = 50
-local function LogError(category, message)
-end
-getgenv().PrintErrorLog = function()
-end
-getgenv().LogError = LogError
+-- OPTIMIZED: removed unused ErrorLog / LastServerResponse bookkeeping.
 
-local LastServerResponse = tick()
-task.spawn(function()
-    while task.wait(15) do
-        pcall(function() if Player and Player.Parent == Players then LastServerResponse = tick() end end)
-    end
-end)
-
-task.spawn(function()
-    pcall(function()
-        Player.Idled:Connect(function()
-            pcall(function()
-                VIM:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-                task.wait(1)
-                VIM:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-            end)
-        end)
-    end)
-end)
+-- OPTIMIZED: duplicate Player.Idled anti-AFK handler removed.
+-- The earlier VirtualUser handler already handles idle prevention.
 
 task.spawn(function()
     while task.wait(300) do
@@ -392,31 +373,40 @@ task.spawn(function()
 end)
 
 -- Lobby only: wait for game UI, then open menu
+-- RESTORED: keep the original fixed 8-second lobby settle.
 do
     local LOBBY_PLACE = 14916516914
     local TRADE_PLACE = 14932214603
+
     if PlaceId == LOBBY_PLACE or PlaceId == TRADE_PLACE then
         print("[Lobby] Waiting for Interface / Gear_Up...")
+
         local t0 = tick()
+
         while (tick() - t0) < 90 do
             local gear = nil
+
             pcall(function()
                 gear = Player.PlayerGui:FindFirstChild("Interface")
                     and Player.PlayerGui.Interface:FindFirstChild("Gear_Up")
             end)
+
             if gear then
-                -- wait until Lobby folder exists under Gear_Up
                 local lobby = gear:FindFirstChild("Lobby")
+
                 if lobby then
                     print("[Lobby] Gear_Up.Lobby found — waiting 8s settle...")
-                    task.wait(8) -- hard settle so UI is fully up
+                    task.wait(8)
+
                     _G.LobbyUILoaded = true
                     print("[Lobby] Ready — opening menu")
                     break
                 end
             end
+
             task.wait(0.15)
         end
+
         if not _G.LobbyUILoaded then
             print("[Lobby] Timeout — opening menu anyway")
             _G.LobbyUILoaded = true
@@ -424,6 +414,7 @@ do
         end
     end
 end
+
 
 local Window = Library:CreateWindow({Title="#Town Ship", Center=true, AutoShow=true})
 
@@ -2875,8 +2866,16 @@ if IsMainmenuLobby() then
         end
 
         if updateConnection then updateConnection:Disconnect() end
-        updateConnection = RunService.Heartbeat:Connect(function()
-            if popupEnabled and popupGui then UpdateDisplay() end
+
+        local popupAccumulator = 0
+        updateConnection = RunService.Heartbeat:Connect(function(dt)
+            if not popupEnabled or not popupGui then return end
+
+            popupAccumulator = popupAccumulator + dt
+            if popupAccumulator < 0.10 then return end
+            popupAccumulator = 0
+
+            UpdateDisplay()
         end)
 
         UpdateDisplay()
@@ -9294,7 +9293,6 @@ local function updateMissionInfo()
     lastMissionCheck = now
     
     pcall(function()
-        local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
         local data = GET:InvokeServer("Data", "Copy")
         if data and data.Map then
             local mapName = data.Map.Map or ""
@@ -9363,12 +9361,11 @@ local function checkProtectHQ()
 end
 
 task.spawn(function()
-    while true do
+    while task.wait(0.10) do
         pcall(function()
             updateMissionInfo()
             checkProtectHQ()
         end)
-        task.wait()
     end
 end)
 
@@ -9789,10 +9786,8 @@ local function getWaveProgress()
         return waveProgressCache.current, waveProgressCache.max, waveProgressCache.text
     end
     
-    local success, player = pcall(function()
-        return game:GetService("Players").LocalPlayer
-    end)
-    if not success or not player then return nil, nil, nil end
+    local player = Player
+    if not player then return nil, nil, nil end
     
     local success2, defend = pcall(function()
         local gui = player.PlayerGui:FindFirstChild("Interface")
@@ -10406,7 +10401,7 @@ end
 -- ===== สร้าง loop ตรวจสอบสถานะ (เร็วขึ้น) =====
 task.spawn(function()
     while true do
-        task.wait(0.03)
+        task.wait(0.10)
         local G = getgenv()
         if G.AutoFarmBlade then
             if not G.Farm then
@@ -10434,7 +10429,7 @@ end)
 
 task.spawn(function()
     while true do
-        task.wait(0.03)
+        task.wait(0.10)
         local G = getgenv()
         if G.AutoThunderSpear then
             if not G.SpearFarm then
@@ -10533,279 +10528,8 @@ end)
 
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
-local SpearCurrentEntry = nil
-local LastSpearAttackTime = 0
-local SPEAR_ATTACK_INTERVAL = 0.2     local CurrentFirePower = 8
-local EXPLODE_RADIUS = 0.14           
-getgenv().SpearFarm = getgenv().SpearFarm or false
-
-local cachedSpearRefill = nil
-local lastSpearRefillCheck = 0
-
-local function FindRefillObject()
-    local now = tick()
-    if cachedSpearRefill and (now - lastSpearRefillCheck < 3) then
-        if pcall(function() return cachedSpearRefill.Parent end) then
-            return cachedSpearRefill
-        end
-    end
-    lastSpearRefillCheck = now
-
-    local paths = {
-        "Climbable._Walls.Gate.GasTanks.Refill",
-        "Climbable._Walls.Gate:GetChildren()[50].Refill",
-        "Unclimbable.Props.HQ.GasTanks.Refill"
-    }
-    for _, path in ipairs(paths) do
-        local success, obj = pcall(function()
-            if path:find(":GetChildren") then
-                local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
-                if gate then
-                    local children = gate:GetChildren()
-                    if children[50] then return children[50]:FindFirstChild("Refill") end
-                end
-                return nil
-            else
-                local parts = {}
-                for part in string.gmatch(path, "[^.]+") do table.insert(parts, part) end
-                local obj = workspace
-                for _, p in ipairs(parts) do obj = obj and obj:FindFirstChild(p) if not obj then break end end
-                return obj
-            end
-        end)
-        if success and obj then
-            cachedSpearRefill = obj
-            return obj
-        end
-    end
-    local success, refill = pcall(function() return workspace:FindFirstChild("Refill", true) end)
-    if success and refill then
-        cachedSpearRefill = refill
-        return refill
-    end
-    cachedSpearRefill = nil
-    return nil
-end
-
-local function ReloadSpears()
-    local refill = FindRefillObject()
-    if refill then
-        pcall(function() POST:FireServer("Attacks", "Reload", refill) end)
-    end
-    CurrentFirePower = 8
-end
-
-local function FireSpear()
-    if CurrentFirePower <= 0 then
-        ReloadSpears()
-        task.wait(0.15)           if CurrentFirePower == 0 then return end
-    end
-    pcall(function()
-        GET:InvokeServer("Spears", "S_Fire", tostring(CurrentFirePower))
-        CurrentFirePower = CurrentFirePower - 1
-    end)
-end
-
-local function ThunderAOEAttack()
-        local activeList = ActiveTitans
-    for _, entry in ipairs(activeList) do
-        local nape = entry.nape
-        if nape then
-            pcall(function()
-                POST:FireServer("Spears", "S_Explode", Vector3.new(nape.Position.X, nape.Position.Y, nape.Position.Z), getExplodeRadius())
-            end)
-        end
-    end
-end
-
-local function ThunderAttackAllTitans()
-    if #ActiveTitans == 0 then return end
-    if not isObjectivesActiveForCore() then return end
-    
-    if getgenv().IsReloading or getgenv().IsRefilling then
-        return
-    end
-
-    local G = getgenv()
-    local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
-    local safe = elapsed >= (G.SafetyTime or 60)
-
-    if safe then
-        FireSpear()
-        ThunderAOEAttack()
-        return
-    end
-
-    if isShiganshinaBreachMission and not protectHQCompleted then
-        FireSpear()
-        ThunderAOEAttack()
-        return
-    end
-
-    local currentWave, maxWave = getWaveProgress()
-    if currentWave and maxWave and currentWave < maxWave then
-        local nearComplete = (currentWave >= maxWave - 2)
-        if nearComplete then
-            if elapsed < (G.SafetyTime or 60) then
-                if not waveWaiting then
-                    waveWaiting = true
-                    Library:Notify(string.format("Wave nearly complete (%d/%d), waiting for safety timer (%.0f/%.0f sec)", currentWave, maxWave, elapsed, G.SafetyTime or 60), 3)
-                end
-                return
-            else
-                if waveWaiting then
-                    waveWaiting = false
-                    Library:Notify("Safety timer reached, resuming attack!", 2)
-                end
-            end
-        else
-            waveWaiting = false
-        end
-    elseif currentWave and currentWave == maxWave then
-        waveWaiting = false
-    elseif not currentWave then
-        waveWaiting = false
-    end
-
-    local slayVisible = isSlayObjectiveVisible()
-    
-    if not slayVisible then
-        FireSpear()
-        ThunderAOEAttack()
-        return
-    end
-    
-    local stopAt = G.StopAtTitansLeft or 1
-    if not safe and #ActiveTitans <= stopAt then
-        return
-    end
-
-    FireSpear()
-    ThunderAOEAttack()
-end
-
-local function SpearFarmUpdate()
-    pcall(function()
-        local G = getgenv()
-        
-        if not G.AutoThunderSpear then
-            if G.SpearFarm then G.SpearFarm = false end
-            return
-        end
-        
-        if not G.SpearFarm or isDead then return end
-        
-        if G.IsReloading or G.IsRefilling then return end
-        
-        if G.AutoThunderSpear and not G.SpearFarm then
-            G.SpearFarm = true
-            G.FarmStartTime = tick()
-        end
-        
-        if IsRewardsUIVisible() then
-            -- Pause during Rewards, but keep the Auto Spear toggle/state
-            -- alive so Auto Retry can resume it in the next mission.
-            SpearCurrentEntry = nil
-            return
-        end
-
-        local char = Player.Character
-        if not char then return end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hrp or not hum or hum.Health <= 0 then
-            OnDeath()
-            return
-        end
-
-        hrp.AssemblyAngularVelocity = Vector3.zero
-
-        if hrp.Position.Y < -50 then
-            hrp.CFrame = CFrame.new(hrp.Position.X, IdleHoverY, hrp.Position.Z)
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            CleanupSmoothMovement()
-            return
-        end
-
-        ScanTitans()
-
-        if #ActiveTitans == 0 then
-            SpearCurrentEntry = nil
-            NoclipOn()
-            CleanupSmoothMovement()
-            local dy = IdleHoverY - hrp.Position.Y
-            hrp.AssemblyLinearVelocity = Vector3.new(0, math.clamp(dy * 5, -50, 50), 0)
-            return
-        end
-
-        if not SpearCurrentEntry or not IsTitanAlive(SpearCurrentEntry.titan) then
-            SpearCurrentEntry = GetBestTarget(hrp.Position)
-        end
-        if not SpearCurrentEntry then return end
-
-        local nape = SpearCurrentEntry.nape
-        if not nape then
-            SpearCurrentEntry = nil
-            return
-        end
-
-        local hoverHeight = G.ThunderSpearHoverHeight or G.HoverHeight or 120
-        local hoverSpeed = G.ThunderSpearHoverSpeed or G.HoverSpeed or 120
-        local targetHeight = nape.Position.Y + hoverHeight
-        local targetPos = Vector3.new(nape.Position.X, targetHeight, nape.Position.Z)
-        local lookDir = Vector3.new(nape.Position.X, targetHeight, nape.Position.Z - 5)
-
-        NoclipOn()
-
-        local farmMode = G.ThunderSpearFarmMode or G.FarmMode or "Tween"
-        if farmMode == "Teleport" then
-            MoveStableTeleport(hrp, targetPos)
-        else
-            MoveSmooth(hrp, targetPos, lookDir)
-        end
-
-        local now = tick()
-        if now - LastSpearAttackTime >= SPEAR_ATTACK_INTERVAL then
-            LastSpearAttackTime = now
-            ThunderAttackAllTitans()
-        end
-    end)
-end
-
-local SpearFarmConn = nil
-local function CreateSpearFarmLoop()
-    if SpearFarmConn then SpearFarmConn:Disconnect() end
-    SpearFarmConn = RunService.Heartbeat:Connect(SpearFarmUpdate)
-end
-CreateSpearFarmLoop()
-
-task.spawn(function()
-    while true do
-        task.wait(0.1)
-        local G = getgenv()
-        if G.AutoThunderSpear then
-            if not G.SpearFarm then
-                G.SpearFarm = true
-                G.FarmStartTime = tick()
-                SpearCurrentEntry = nil
-                LastSpearAttackTime = tick()
-            end
-        else
-            if G.SpearFarm then
-                G.SpearFarm = false
-                SpearCurrentEntry = nil
-                CleanupSmoothMovement()
-            end
-        end
-    end
-end)
-
-task.spawn(function()
-    while task.wait(1) do           if not SpearFarmConn or not SpearFarmConn.Connected then
-            CreateSpearFarmLoop()
-        end
-    end
-end)
+-- OPTIMIZED: removed duplicated Thunder Spear implementation.
+-- The primary implementation above is the only active copy.
 
 
 if Tabs.AutoFarm then
