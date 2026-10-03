@@ -1344,13 +1344,47 @@ task.spawn(function()
     until tick() - start > 3
 end)
 
--- Lobby only: wait for game UI, then open menu
--- RESTORED: keep the original fixed 8-second lobby settle.
+-- Main Menu / Lobby startup settle
+-- Main Menu: wait for Title_Screen, then wait 4 seconds.
+-- Lobby: keep the original 8-second settle.
 do
+    local MAIN_MENU_PLACE = 13379208636
     local LOBBY_PLACE = 14916516914
     local TRADE_PLACE = 14932214603
 
-    if PlaceId == LOBBY_PLACE or PlaceId == TRADE_PLACE then
+    if PlaceId == MAIN_MENU_PLACE then
+        print("[MainMenu] Waiting for Interface / Title_Screen...")
+
+        local t0 = tick()
+        local mainMenuReady = false
+
+        while (tick() - t0) < 90 do
+            local titleScreen = nil
+
+            pcall(function()
+                local interface = Player.PlayerGui:FindFirstChild("Interface")
+                titleScreen = interface
+                    and interface:FindFirstChild("Title_Screen")
+            end)
+
+            if titleScreen then
+                print("[MainMenu] Title_Screen found — waiting 4s settle...")
+                task.wait(4)
+
+                mainMenuReady = true
+                print("[MainMenu] Ready — continuing script")
+                break
+            end
+
+            task.wait(0.15)
+        end
+
+        if not mainMenuReady then
+            print("[MainMenu] Timeout — continuing anyway")
+            task.wait(1)
+        end
+
+    elseif PlaceId == LOBBY_PLACE or PlaceId == TRADE_PLACE then
         print("[Lobby] Waiting for Interface / Gear_Up...")
 
         local t0 = tick()
@@ -1371,7 +1405,7 @@ do
                     task.wait(8)
 
                     _G.LobbyUILoaded = true
-                    print("[Lobby] Ready — opening menu")
+                    print("[Lobby] Ready — continuing script")
                     break
                 end
             end
@@ -1380,7 +1414,7 @@ do
         end
 
         if not _G.LobbyUILoaded then
-            print("[Lobby] Timeout — opening menu anyway")
+            print("[Lobby] Timeout — continuing anyway")
             _G.LobbyUILoaded = true
             task.wait(3)
         end
