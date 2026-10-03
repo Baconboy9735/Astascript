@@ -1,8 +1,644 @@
 -- ============================================================
+-- TOWNSHIP HEADLESS / CONFIG-ONLY BUILD
+-- Based on TownShip_Optimized_Fixed_8sLobbyWait.lua
+-- No Linoria menu is downloaded or rendered.
+-- Keep the 8-second lobby settle from the working build.
+-- ============================================================
+
+-- ============================================================
 -- OPTIMIZED BUILD
 -- Conservative performance/stability pass.
 -- Core features, UI controls, remotes and config behavior preserved.
 -- ============================================================
+
+-- ============================================================
+-- TOWNSHIP HEADLESS CONFIG
+-- No Linoria menu is created.
+--
+-- HOW TO USE:
+--   * Edit MainMenu, Lobby, or Mission below.
+--   * The script automatically loads the correct section for the current place.
+--   * Advanced exact-ID overrides are available at the bottom if needed.
+--
+-- Multi-select settings use a simple list:
+--   {"Memory Scroll", "Emperor's Key"}
+-- The headless layer converts it to the format the original script expects.
+-- ============================================================
+
+local CONFIG = {
+    -- ========================================================
+    -- GENERAL
+    -- true = enabled / false = disabled
+    -- Numbers are usually seconds, amounts, speed, height, etc.
+    -- ========================================================
+    System = {
+        PrintNotifications = true,   -- true = print old UI notifications in the console.
+        PrintConfigLoads = false,    -- true = print every config value as the script loads it.
+    },
+
+    -- ========================================================
+    -- MAIN MENU
+    -- Used only while you are on the game's main menu.
+    -- ========================================================
+    MainMenu = {
+        AutoSelect = true,           -- Automatically selects the configured slot when the slot screen appears.
+        AutoDialog = true,           -- Automatically clicks/continues supported dialog prompts.
+        AutoJoin = true,             -- Automatically joins the destination selected in JoinDestination.
+
+        AutoRedeem = false,          -- Automatically redeems stored codes.
+        AutoNotNow = false,          -- Automatically clicks "Not Now" when that supported popup appears.
+        StopAtSpinLimit = false,     -- Stops family spinning when the amount in StopAtSpins is reached.
+        AutoNotify = false,          -- Enables the family/spin notification system.
+        AutoTeleport = false,        -- Automatically teleports after AutoTeleportTime.
+        AutoSpin = false,            -- Automatically spins for the families listed in SpinFamilies.
+        PopupRealTime = false,       -- Enables the real-time family/status popup logic. No visible Linoria menu is created.
+
+        HideUI = true,               -- Compatibility setting from the old UI version; headless mode has no menu to show.
+        MobileUI = true,             -- Enables old mobile-UI compatibility behavior where supported.
+
+        Slot = "A",                  -- Character slot to automatically select. Example: "A".
+        SelectDelay = 1,             -- Seconds to wait between automatic slot-selection actions.
+
+        JoinDestination = "Lobby",   -- Destination used by AutoJoin. Example: "Lobby".
+        JoinDelay = 0,               -- Seconds to wait before AutoJoin performs its action.
+
+        TeleportTime = 0,            -- Delay in seconds for AutoTeleport. 0 = no extra delay.
+
+        StopAtSpins = "0",           -- Spin limit used by StopAtSpinLimit. Kept as text for compatibility.
+        SpinFamilies = {},           -- Families AutoSpin should target. Example: {"Yeager", "Ackerman"}.
+        SpinDelay = 0.01,            -- Delay in seconds between family-spin attempts.
+
+        WebhookURL = "",             -- Main-menu/family webhook URL. Leave "" to disable sending to a URL.
+        WebhookPing = "None",        -- Ping mode for the main-menu webhook. Current value: "None".
+
+        NewCode = "",                -- A code to add/store when using the code-storage action.
+        StoredCodes = {},            -- Codes selected/stored for automatic redemption.
+
+        PopupScale = 100,            -- Scale percentage for the old popup/status display. 100 = normal size.
+    },
+
+    -- ========================================================
+    -- LOBBY / TRADE LOBBY
+    -- Used in Town Central and the trade lobby.
+    -- ========================================================
+    Lobby = {
+        HideUI = true,               -- Compatibility setting; there is no Linoria menu in this headless build.
+        MobileUI = false,            -- Old mobile-UI compatibility behavior for the lobby.
+
+        AutoStartMission = true,     -- Automatically starts the configured mission.
+        AutoWaves = false,           -- Automatically handles/starts wave-related actions where supported.
+        AutoTeleport = false,        -- Lobby automatic teleport feature.
+
+        Mission = {
+            Name = "Chapel",         -- Mission/map to start automatically.
+            Objective = "Skirmish",  -- Mission objective/mode.
+            Difficulty = "Hardest",  -- Mission difficulty.
+
+            Modifiers = {            -- Mission modifiers to select automatically.
+                "Nightmare",         -- Enables the Nightmare modifier.
+                "No Skills",         -- Enables the No Skills modifier.
+                "Injury Prone",      -- Enables the Injury Prone modifier.
+                "Oddball",           -- Enables the Oddball modifier.
+                "No Perks",          -- Enables the No Perks modifier.
+                "Fog",               -- Enables the Fog modifier.
+                "Glass Cannon",      -- Enables the Glass Cannon modifier.
+                "Chronic Injuries",  -- Enables the Chronic Injuries modifier.
+                "No Memories",       -- Enables the No Memories modifier.
+                "Time Trial",        -- Enables the Time Trial modifier.
+            },
+
+            Delay = 7,               -- Seconds the mission starter waits between/start around mission actions.
+            WavesDelay = 0,          -- Extra delay in seconds for wave actions.
+        },
+
+        Boosts = {
+            Enabled = true,          -- Master toggle for the automatic boost system.
+            Gold = true,             -- Enables automatic Gold boost handling.
+            Luck = false,            -- Enables automatic Luck boost handling.
+            XP = false,              -- Enables automatic XP boost handling.
+            Delay = 1,               -- Seconds between automatic boost checks.
+
+            Purchase = false,        -- Enables the separate boost-purchase feature.
+            AutoUse = false,         -- Automatically uses boosts selected in Selected.
+            Selected = {},           -- Boosts for the separate purchase/use system. Example: {"2x Gold Boost [2h]"}.
+            Amount = 1,              -- Quantity used by the separate boost-purchase system.
+            UseDelay = 0,            -- Delay in seconds between separate boost-use actions.
+        },
+
+        Cosmetics = {
+            AutoSell = true,         -- Automatically sells the configured supported cosmetics.
+            Repeat = 3,              -- Number of sell attempts made for each cosmetic per cycle.
+            Delay = 0.25,            -- Seconds between cosmetic sell requests.
+        },
+
+        Perks = {
+            AutoDelete = true,       -- Automatically deletes perks matching the enabled rarities below.
+
+            Common = true,           -- Delete Common perks.
+            Rare = true,             -- Delete Rare perks.
+            Epic = true,             -- Delete Epic perks.
+            Legendary = true,        -- Delete Legendary perks.
+            Secret = false,          -- Delete Secret perks. false keeps them.
+
+            Delay = 0.05,            -- Seconds between perk-delete batches.
+            Interval = 5,            -- Seconds between automatic perk-delete scans.
+        },
+
+        Upgrades = {
+            Blade = true,            -- Automatically upgrades Blade equipment.
+            Spear = false,           -- Automatically upgrades Thunder Spear equipment.
+
+            BladeDelay = 0,          -- Extra delay between Blade upgrade actions.
+            SpearDelay = 0,          -- Extra delay between Spear upgrade actions.
+        },
+
+        Skills = {
+            Unlock = true,           -- Automatically unlocks skills according to the configured side choices.
+            AutoEquip = true,        -- Automatically equips the five skill IDs below.
+
+            SupportSide = "Right",   -- Support skill-tree side. Example: "Left", "Right", or "None".
+            OffenseSide = "Left",    -- Offense skill-tree side.
+            DefenseSide = "None",    -- Defense skill-tree side. "None" disables that side.
+
+            UnlockDelay = 0.08,      -- Seconds between automatic skill-unlock actions.
+            EquipDelay = 1,          -- Seconds between automatic skill-equip actions.
+
+            Slots = {
+                "76",                -- Skill ID for slot 1.
+                "95",                -- Skill ID for slot 2.
+                "26",                -- Skill ID for slot 3.
+                "7",                 -- Skill ID for slot 4.
+                "3",                 -- Skill ID for slot 5.
+            },
+        },
+
+        ShadowChecker = {
+            Enabled = true,          -- Enables the account/shadow-checker logic.
+            WebhookURL = "",         -- Webhook used by the shadow checker. Leave "" if you do not want one.
+        },
+
+        Prestige = {
+            Enabled = true,          -- Enables automatic prestige.
+            ForceGold = true,        -- Forces/uses the custom Gold requirement values below.
+
+            GoldRequirements = {
+                [0] = 200,           -- Gold requirement used for Prestige 0 -> 1.
+                [1] = 400,           -- Gold requirement used for Prestige 1 -> 2.
+                [2] = 600,           -- Gold requirement used for Prestige 2 -> 3.
+                [3] = 800,           -- Gold requirement used for Prestige 3 -> 4.
+                [4] = 1000,          -- Gold requirement used for Prestige 4 -> 5.
+            },
+
+            Boost = "Gold Boost",    -- Boost name/value passed to the prestige system.
+            SendAs = "Name",         -- Format used when sending the prestige boost/talent value.
+            Cooldown = 8,            -- Seconds between prestige attempts.
+        },
+
+        Claims = {
+            Quests = true,           -- Automatically claims available quest rewards.
+            Achievements = true,     -- Automatically claims available achievement rewards.
+            Delay = 0,               -- Extra delay between claim actions.
+        },
+
+        Trade = {
+            Receiver = {             -- Account 1 / Receiver usernames.
+                "Xz_CrazejBMoonOBEcho", -- This username is treated as a receiver account.
+            },
+
+            Sender = {               -- Account 2 / Sender usernames.
+                "GoldeeenlionBlox",  -- This username is treated as a sender account.
+            },
+
+            ReceiverSend = true,     -- Enables repeated trade invites/actions for Receiver-list accounts.
+            ReceiverAccept = true,   -- Enables automatic trade acceptance for Receiver-list accounts.
+
+            SenderSend = true,       -- Enables repeated trade invites/actions for Sender-list accounts.
+            SenderAccept = true,     -- Enables automatic trade acceptance for Sender-list accounts.
+
+            CurrentPlayersSend = false,   -- Enables Send Trade for the Current Players selection.
+            CurrentPlayersAccept = false, -- Enables Auto Accept for the Current Players selection.
+
+            ApplyHistory = true,     -- Applies the trading history option below.
+            History = "Off",         -- Trading history setting sent to the game. "On" or "Off".
+
+            AutoTrade = false,       -- Enables the manual Auto Trade item-giving worker.
+            AcceptTrade = true,      -- Automatically readies/accepts the active trade.
+
+            Items = {                -- Items the sender should place into the trade.
+                "Memory Scroll",     -- Trade Memory Scrolls.
+            },
+
+            AmountPerItem = 100,     -- Target amount of each selected item to place in the trade.
+
+            AutoDisable = false,     -- Automatically stops trade logic when the configured threshold is reached.
+            AutoDisableThreshold = 0,-- Memory Scroll threshold used by AutoDisable.
+
+            ReceiverInput = "",      -- Text used when manually adding a Receiver username to the saved list.
+            SenderInput = "",        -- Text used when manually adding a Sender username to the saved list.
+        },
+    },
+
+    -- ========================================================
+    -- IN MISSION
+    -- Used after entering an actual mission.
+    -- ========================================================
+    Mission = {
+        HideUI = true,               -- Compatibility setting; headless mode has no Linoria menu.
+        MobileUI = false,             -- Disables old mobile-UI compatibility behavior in missions.
+
+        AutoFarm = true,             -- Master Blade auto-farm toggle.
+        AutoReload = true,           -- Automatically refills/reloads Blade equipment.
+        AutoRetry = true,            -- Automatically presses Retry after mission rewards appear.
+        AutoReturn = true,           -- Returns to Town Central after TargetMissions missions.
+
+        AutoThunderSpear = false,    -- Enables the Thunder Spear auto-farm system.
+        AutoSpearQuest = false,      -- Enables the automatic Thunder Spear quest helper.
+
+        SpearHitDistanceEnabled = true, -- Enables the custom Thunder Spear hit-distance setting below.
+
+        SkipCutScene = false,        -- Enables the supported automatic cutscene skip feature.
+        SkipForce = false,           -- Enables the force-skip helper where supported.
+
+        PlayerStats = false,         -- Enables the player-stats display/worker from the original script.
+
+        Farm = {
+            Mode = "Tween",          -- Blade movement mode: "Tween", "Teleport", or "No Movement".
+            HoverSpeed = 1000,       -- Tween/movement speed used while moving above Titans.
+            HoverHeight = 400,       -- Height in studs to stay above the current Titan.
+
+            SafetyTime = 0,          -- Seconds to wait in safety/wave state before normal farming starts.
+            StopAtTitansLeft = 0,    -- Stop/pause threshold based on Titans remaining. 0 disables the threshold.
+            KillHits = 9,            -- Number of Titan targets/hits used by the fast Titan worker.
+        },
+
+        ThunderSpear = {
+            Mode = "Tween",          -- Thunder Spear movement mode.
+            HoverSpeed = 120,        -- Thunder Spear movement/tween speed.
+            HoverHeight = 120,       -- Height in studs used by Thunder Spear farming.
+            HitDistance = 80,        -- Maximum configured Thunder Spear hit distance.
+        },
+
+        Performance = {
+            UIScale = 100,           -- Old UI scale percentage. Kept for compatibility even though this build is headless.
+            FPSLimit = 15,           -- FPS cap from the config you sent.
+
+            RenderModes = {          -- Performance/render optimizations to enable.
+                "Delete Map",        -- Removes supported map objects to reduce rendering load.
+                "Low Graphic",       -- Applies the original low-graphics optimization.
+                "Disable 3D Render", -- Disables 3D rendering where supported for maximum performance.
+            },
+        },
+
+        Return = {
+            TargetMissions = 20,     -- Number of completed missions before AutoReturn goes back to the lobby.
+        },
+
+        FailSafe = {
+            Enabled = true,          -- Enables the combined fail-safe action system.
+            Delay = 46,              -- Seconds before the configured fail-safe action is performed.
+
+            Actions = {              -- Actions performed by the fail-safe when enabled.
+                "Teleport to Lobby", -- Teleports back to Town Central/lobby.
+            },
+        },
+
+        Webhook = {
+            Enabled = true,          -- Sends mission/result data through the configured webhook system.
+            URL = "https://discord.com/api/webhooks/1477622665928769536/JO474IX4qv00G9d3WL0AyQdHScSAXXO8M2pjrajZHYFmRLeOI3nFMq2axvWz-D0NFixy", -- Mission webhook URL.
+            Mode = "All Data",       -- Amount/type of information included in the webhook message.
+            PingMode = "None",       -- Ping behavior for webhook messages.
+
+            Filters = {              -- Data categories included in the webhook.
+                "Progression",       -- Include progression data.
+                "Currency",          -- Include currency data.
+                "Cosmetics",         -- Include cosmetic data.
+                "Loadout",           -- Include loadout data.
+                "Inventory",         -- Include inventory data.
+            },
+        },
+
+        Description = {
+            Enabled = false,         -- Automatic description/status generation stays disabled.
+            Type = "Horst",          -- Description format/type used by the original feature.
+
+            Stats = {                -- Stats selected in your config.
+                "Prestige",
+                "Shards",
+                "Slot",
+                "Spins",
+                "Level",
+                "Gems",
+                "Gold",
+            },
+
+            Items = {},              -- No description items selected.
+            Cosmetics = {},          -- No description cosmetics selected.
+        },
+    },
+
+    -- ========================================================
+    -- ADVANCED OVERRIDES
+    -- Normally leave these empty.
+    -- These let you override an original control ID directly without
+    -- changing the simple sections above.
+    -- Example:
+    -- Toggles = {AutoFarmBlade = false}
+    -- ========================================================
+    Advanced = {
+        Toggles = {},                -- Exact original toggle IDs and true/false values.
+        Values = {},                 -- Exact original slider/dropdown IDs and their values.
+        Inputs = {},                 -- Exact original input IDs and their text values.
+        Buttons = {},                -- Exact original button names; true runs that action once.
+    },
+}
+
+
+-- ============================================================
+-- SIMPLE CONFIG -> ORIGINAL CONTROL IDS
+-- The rest of the script still uses its original control names,
+-- so this converts the clean config above automatically.
+-- ============================================================
+
+local ACTIVE = {
+    Toggles = {},
+    Values = {},
+    Inputs = {},
+    Buttons = {},
+}
+
+local function setToggle(id, value)
+    if value ~= nil then
+        ACTIVE.Toggles[id] = value
+    end
+end
+
+local function setValue(id, value)
+    if value ~= nil then
+        ACTIVE.Values[id] = value
+    end
+end
+
+local function setInput(id, value)
+    if value ~= nil then
+        ACTIVE.Inputs[id] = value
+    end
+end
+
+local function copyList(list)
+    if type(list) ~= "table" then
+        return {}
+    end
+
+    local out = {}
+    for i = 1, #list do
+        out[i] = list[i]
+    end
+    return out
+end
+
+local MAIN_MENU_ID_CONFIG = 13379208636
+local LOBBY_ID_CONFIG = 14916516914
+local TRADE_ID_CONFIG = 14932214603
+
+local CurrentConfigSection
+
+if game.PlaceId == MAIN_MENU_ID_CONFIG then
+    CurrentConfigSection = "MainMenu"
+
+    local C = CONFIG.MainMenu
+
+    setToggle("AutoClickSelectToggle", C.AutoSelect)
+    setToggle("AutoDialogClickerToggle", C.AutoDialog)
+    setToggle("MyToggle", C.AutoJoin)
+
+    setToggle("AutoRedeemToggle", C.AutoRedeem)
+    setToggle("AutoNotNowClickerToggle", C.AutoNotNow)
+    setToggle("StopAtSpinLimitToggle", C.StopAtSpinLimit)
+    setToggle("AutoNotifyToggle", C.AutoNotify)
+    setToggle("AutoTeleportToggle", C.AutoTeleport)
+    setToggle("AutoSpinToggle", C.AutoSpin)
+    setToggle("PopupRealTimeToggle", C.PopupRealTime)
+
+    setToggle("HideUIToggle", C.HideUI)
+    setToggle("EnableMobileUI", C.MobileUI)
+
+    setValue("SlotSelectionDropdown", C.Slot)
+    setValue("SelectDelaySlider", C.SelectDelay)
+
+    setValue("JoinDestinationDropdown", C.JoinDestination)
+    setValue("AutoJoinDelaySlider", C.JoinDelay)
+
+    setValue("AutoTeleportTimeSlider", C.TeleportTime)
+
+    setInput("StopAtSpinLimitInput", C.StopAtSpins)
+    setValue("AutoSpinFamilies", copyList(C.SpinFamilies))
+    setValue("AutoSpinDelaySlider", C.SpinDelay)
+
+    setInput("Webhook_URL", C.WebhookURL)
+    setValue("Webhook_PingMode", C.WebhookPing)
+
+    setInput("NewCodeInput", C.NewCode)
+    setValue("CodeListDropdown", copyList(C.StoredCodes))
+
+    setValue("PopupUIScale", C.PopupScale)
+
+elseif game.PlaceId == LOBBY_ID_CONFIG
+    or game.PlaceId == TRADE_ID_CONFIG then
+
+    CurrentConfigSection = "Lobby"
+
+    local C = CONFIG.Lobby
+
+    setToggle("HideUIToggle", C.HideUI)
+    setToggle("EnableMobileUI", C.MobileUI)
+
+    setToggle("AutoStartMissionToggle", C.AutoStartMission)
+    setToggle("AutoWavesToggle", C.AutoWaves)
+    setToggle("AutoTeleportToggle", C.AutoTeleport)
+
+    setValue("MissionDropdown", C.Mission.Name)
+    setValue("MissionObjectiveDropdown", C.Mission.Objective)
+    setValue("MissionDifficultyDropdown", C.Mission.Difficulty)
+    setValue("MissionModifiersDropdown", copyList(C.Mission.Modifiers))
+    setValue("MissionDelaySlider", C.Mission.Delay)
+    setValue("WavesDelaySlider", C.Mission.WavesDelay)
+
+    setToggle("AutoBoost_Enable", C.Boosts.Enabled)
+    setToggle("AutoBoost_Gold", C.Boosts.Gold)
+    setToggle("AutoBoost_Luck", C.Boosts.Luck)
+    setToggle("AutoBoost_XP", C.Boosts.XP)
+    setValue("AutoBoost_Delay", C.Boosts.Delay)
+
+    setToggle("Boost_PurchaseToggle", C.Boosts.Purchase)
+    setToggle("Boost_AutoUseToggle", C.Boosts.AutoUse)
+    setValue("Boost_ListDropdown", copyList(C.Boosts.Selected))
+    setValue("Boost_AmountSlider", C.Boosts.Amount)
+    setValue("Boost_DelaySlider", C.Boosts.UseDelay)
+
+    setToggle("AutoSellCosmetics", C.Cosmetics.AutoSell)
+    setValue("AutoSellRepeat", C.Cosmetics.Repeat)
+    setValue("AutoSellDelay", C.Cosmetics.Delay)
+
+    setToggle("PerkDel_Auto", C.Perks.AutoDelete)
+    setToggle("PerkDel_Common", C.Perks.Common)
+    setToggle("PerkDel_Rare", C.Perks.Rare)
+    setToggle("PerkDel_Epic", C.Perks.Epic)
+    setToggle("PerkDel_Legendary", C.Perks.Legendary)
+    setToggle("PerkDel_Secret", C.Perks.Secret)
+    setValue("PerkDel_Delay", C.Perks.Delay)
+    setValue("PerkDel_Interval", C.Perks.Interval)
+
+    setToggle("AutoUpgradeBladeToggle", C.Upgrades.Blade)
+    setToggle("AutoUpgradeSpearToggle", C.Upgrades.Spear)
+    setValue("BladeUpgradeDelaySlider", C.Upgrades.BladeDelay)
+    setValue("SpearUpgradeDelaySlider", C.Upgrades.SpearDelay)
+
+    setToggle("UnlockSkillsToggle", C.Skills.Unlock)
+    setToggle("AutoEquipSkillsToggle", C.Skills.AutoEquip)
+
+    setValue("SupportSideDropdown", C.Skills.SupportSide)
+    setValue("OffenseSideDropdown", C.Skills.OffenseSide)
+    setValue("DefenseSideDropdown", C.Skills.DefenseSide)
+
+    setValue("UnlockDelaySlider", C.Skills.UnlockDelay)
+    setValue("SkillEquipDelay", C.Skills.EquipDelay)
+
+    setInput("SkillSlot1", C.Skills.Slots[1])
+    setInput("SkillSlot2", C.Skills.Slots[2])
+    setInput("SkillSlot3", C.Skills.Slots[3])
+    setInput("SkillSlot4", C.Skills.Slots[4])
+    setInput("SkillSlot5", C.Skills.Slots[5])
+
+    setToggle("EnableShadowChecker", C.ShadowChecker.Enabled)
+    setInput("ShadowBanWebhookURL", C.ShadowChecker.WebhookURL)
+
+    setToggle("PrestigeToggle", C.Prestige.Enabled)
+    setToggle("ForceGoldToggle", C.Prestige.ForceGold)
+
+    setValue("GoldReq_0to1", C.Prestige.GoldRequirements[0])
+    setValue("GoldReq_1to2", C.Prestige.GoldRequirements[1])
+    setValue("GoldReq_2to3", C.Prestige.GoldRequirements[2])
+    setValue("GoldReq_3to4", C.Prestige.GoldRequirements[3])
+    setValue("GoldReq_4to5", C.Prestige.GoldRequirements[4])
+
+    setValue("BoostDropdown", C.Prestige.Boost)
+    setValue("PrestigeSendAsDropdown", C.Prestige.SendAs)
+    setValue("PrestigeCooldownSlider", C.Prestige.Cooldown)
+
+    setToggle("ClaimQuestToggle", C.Claims.Quests)
+    setToggle("ClaimAchievementToggle", C.Claims.Achievements)
+    setValue("ClaimDelaySlider", C.Claims.Delay)
+
+    setValue("Trade_Acc1_Dropdown", copyList(C.Trade.Receiver))
+    setValue("Trade_Acc2_Dropdown", copyList(C.Trade.Sender))
+
+    setInput("Trade_Acc1_Input", C.Trade.ReceiverInput)
+    setInput("Trade_Acc2_Input", C.Trade.SenderInput)
+
+    setToggle("Trade_Acc1_Send", C.Trade.ReceiverSend)
+    setToggle("Trade_Acc1_Accept", C.Trade.ReceiverAccept)
+
+    setToggle("Trade_Acc2_Send", C.Trade.SenderSend)
+    setToggle("Trade_Acc2_Accept", C.Trade.SenderAccept)
+
+    setToggle("Trade_Current_Send", C.Trade.CurrentPlayersSend)
+    setToggle("Trade_Current_Accept", C.Trade.CurrentPlayersAccept)
+
+    setToggle("ApplyHistoryToggle", C.Trade.ApplyHistory)
+    setValue("HistoryOptionDropdown", C.Trade.History)
+
+    setToggle("Alt2_AutoTradeToggle", C.Trade.AutoTrade)
+    setToggle("Alt2_AcceptTradeToggle", C.Trade.AcceptTrade)
+
+    setValue("Alt2_ItemSelectDropdown", copyList(C.Trade.Items))
+    setValue("Alt2_SelectAmountSlider", C.Trade.AmountPerItem)
+
+    setToggle("AutoDisableToggle", C.Trade.AutoDisable)
+    setValue("AutoDisableThresholdSlider", C.Trade.AutoDisableThreshold)
+
+else
+    CurrentConfigSection = "Mission"
+
+    local C = CONFIG.Mission
+
+    setToggle("HideUIToggle", C.HideUI)
+    setToggle("EnableMobileUI", C.MobileUI)
+
+    setToggle("AutoFarmBlade", C.AutoFarm)
+    setToggle("AutoReloadBlade", C.AutoReload)
+    setToggle("StartRejoin", C.AutoRetry)
+    setToggle("AutoReturnToggle", C.AutoReturn)
+
+    setToggle("AutoThunderSpearToggle", C.AutoThunderSpear)
+    setToggle("AutoSpearQuestToggle", C.AutoSpearQuest)
+    setToggle("SpearHitDistanceToggle", C.SpearHitDistanceEnabled)
+
+    setToggle("SkipCutSceneToggle", C.SkipCutScene)
+    setToggle("SkipForceToggle", C.SkipForce)
+
+    setToggle("PlayerStatsToggle", C.PlayerStats)
+
+    setValue("FarmModeDropdown", C.Farm.Mode)
+    setValue("HoverSpeedSlider", C.Farm.HoverSpeed)
+    setValue("HoverHeightSlider", C.Farm.HoverHeight)
+    setValue("SafetyTimeSlider", C.Farm.SafetyTime)
+    setValue("StopAtTitansLeftSlider", C.Farm.StopAtTitansLeft)
+    setValue("KillHitsSlider", C.Farm.KillHits)
+
+    setValue("ThunderSpear_FarmMode", C.ThunderSpear.Mode)
+    setValue("ThunderSpear_HoverSpeed", C.ThunderSpear.HoverSpeed)
+    setValue("ThunderSpear_HoverHeight", C.ThunderSpear.HoverHeight)
+    setValue("SpearHitDistanceSlider", C.ThunderSpear.HitDistance)
+
+    setValue("UIScaleSlider", C.Performance.UIScale)
+    setValue("FPSLimitSlider", C.Performance.FPSLimit)
+    setValue("RenderModeDropdown", copyList(C.Performance.RenderModes))
+
+    setValue("TargetMissionsSlider", C.Return.TargetMissions)
+
+    setToggle("CombinedActionToggle", C.FailSafe.Enabled)
+    setValue("CombinedActionDelaySlider", C.FailSafe.Delay)
+    setValue("CombinedActionsDropdown", copyList(C.FailSafe.Actions))
+
+    setToggle("WebhookToggle", C.Webhook.Enabled)
+    setInput("WebhookURL", C.Webhook.URL)
+    setValue("WebhookMode", C.Webhook.Mode)
+    setValue("WebhookPingMode", C.Webhook.PingMode)
+    setValue("WebhookFilters", copyList(C.Webhook.Filters))
+
+    setToggle("SetDescToggle", C.Description.Enabled)
+    setValue("DescTypeDropdown", C.Description.Type)
+    setValue("DescStatsDropdown", copyList(C.Description.Stats))
+    setValue("DescItemsDropdown", copyList(C.Description.Items))
+    setValue("DescCosmeticsDropdown", copyList(C.Description.Cosmetics))
+end
+
+-- Exact-ID overrides always win.
+for id, value in pairs(CONFIG.Advanced.Toggles or {}) do
+    ACTIVE.Toggles[id] = value
+end
+
+for id, value in pairs(CONFIG.Advanced.Values or {}) do
+    ACTIVE.Values[id] = value
+end
+
+for id, value in pairs(CONFIG.Advanced.Inputs or {}) do
+    ACTIVE.Inputs[id] = value
+end
+
+for id, value in pairs(CONFIG.Advanced.Buttons or {}) do
+    ACTIVE.Buttons[id] = value
+end
+
+-- Compatibility aliases used by the existing headless control layer.
+CONFIG.Toggles = ACTIVE.Toggles
+CONFIG.Values = ACTIVE.Values
+CONFIG.Inputs = ACTIVE.Inputs
+CONFIG.Buttons = ACTIVE.Buttons
+
+CONFIG.ActiveSection = CurrentConfigSection
+
+getgenv().TownShipHeadlessConfig = CONFIG
 
 -- ============================================================
 -- ULTRA-FAST BOOT
@@ -242,10 +878,346 @@ player.Idled:Connect(function()
 end)
 ----------------------------------------------------------------------
 
-local repo="https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/"
-local Library=loadstring(game:HttpGet(repo.."Library.lua"))()
-local ThemeManager=loadstring(game:HttpGet(repo.."addons/ThemeManager.lua"))()
-local SaveManager=loadstring(game:HttpGet(repo.."addons/SaveManager.lua"))()
+-- ============================================================
+-- HEADLESS CONTROL COMPATIBILITY LAYER
+-- Replaces Linoria UI objects with tiny Lua tables.
+-- No control/menu UI is created.
+-- ============================================================
+
+getgenv().Options = {}
+getgenv().Toggles = {}
+Options = getgenv().Options
+Toggles = getgenv().Toggles
+
+local function cloneTable(value)
+    if type(value) ~= "table" then
+        return value
+    end
+
+    local out = {}
+    for k, v in pairs(value) do
+        if type(v) == "table" then
+            out[k] = cloneTable(v)
+        else
+            out[k] = v
+        end
+    end
+    return out
+end
+
+local function normalizeMulti(value)
+    if type(value) ~= "table" then
+        if value == nil or value == "" then
+            return {}
+        end
+        return {[tostring(value)] = true}
+    end
+
+    local hasNumeric = false
+    for k in pairs(value) do
+        if type(k) == "number" then
+            hasNumeric = true
+            break
+        end
+    end
+
+    if not hasNumeric then
+        return cloneTable(value)
+    end
+
+    local out = {}
+    for _, v in ipairs(value) do
+        if type(v) == "string" then
+            out[v] = true
+        end
+    end
+    return out
+end
+
+local function configValue(id, defaultValue, kind, multi)
+    local value = nil
+
+    if kind == "toggle" then
+        value = CONFIG.Toggles[id]
+    elseif kind == "input" then
+        value = CONFIG.Inputs[id]
+        if value == nil then
+            value = CONFIG.Values[id]
+        end
+    else
+        value = CONFIG.Values[id]
+    end
+
+    if value == nil then
+        value = defaultValue
+    end
+
+    if multi then
+        value = normalizeMulti(value)
+    elseif type(value) == "table" then
+        value = cloneTable(value)
+    end
+
+    return value
+end
+
+local function makeControl(id, opts, kind)
+    opts = opts or {}
+
+    local control = {
+        Id = id,
+        Text = opts.Text or tostring(id),
+        Values = opts.Values,
+        Multi = opts.Multi == true,
+        Callback = opts.Callback,
+    }
+
+    control.Value = configValue(
+        id,
+        opts.Default,
+        kind,
+        control.Multi
+    )
+
+    local function valuesEqual(a, b)
+        if type(a) == "table" or type(b) == "table" then
+            return false
+        end
+        return a == b
+    end
+
+    function control:SetValue(value)
+        if self.Multi then
+            value = normalizeMulti(value)
+        end
+
+        local changed = not valuesEqual(self.Value, value)
+        self.Value = value
+
+        if changed and type(self.Callback) == "function" then
+            local ok, err = pcall(self.Callback, value)
+            if not ok then
+                warn(
+                    "[Headless Config] callback error for "
+                    .. tostring(self.Id)
+                    .. ": "
+                    .. tostring(err)
+                )
+            end
+        end
+
+        return self
+    end
+
+    function control:SetValues(values)
+        self.Values = values
+        return self
+    end
+
+    function control:SetText(value)
+        self.Text = tostring(value or "")
+        return self
+    end
+
+    function control:AddKeyPicker(keyId, keyOpts)
+        return makeControl(keyId, keyOpts or {}, "value")
+    end
+
+    Options[id] = control
+    if kind == "toggle" then
+        Toggles[id] = control
+    end
+
+    -- Non-toggle values should exist before following controls are built.
+    if kind ~= "toggle" and type(control.Callback) == "function" then
+        local ok, err = pcall(control.Callback, control.Value)
+        if not ok then
+            warn(
+                "[Headless Config] initial value error for "
+                .. tostring(id)
+                .. ": "
+                .. tostring(err)
+            )
+        end
+    elseif kind == "toggle" and type(control.Callback) == "function" then
+        -- Start enabled features after the current setup stack has completed.
+        task.defer(function()
+            if control.Value == configValue(
+                id,
+                opts.Default,
+                kind,
+                control.Multi
+            ) then
+                local ok, err = pcall(control.Callback, control.Value)
+                if not ok then
+                    warn(
+                        "[Headless Config] initial toggle error for "
+                        .. tostring(id)
+                        .. ": "
+                        .. tostring(err)
+                    )
+                end
+            end
+        end)
+    end
+
+    if CONFIG.System.PrintConfigLoads then
+        print(
+            "[Headless Config]",
+            tostring(id),
+            "=",
+            type(control.Value) == "table" and "<table>" or tostring(control.Value)
+        )
+    end
+
+    return control
+end
+
+local Node = {}
+Node.__index = Node
+
+local function newNode(name)
+    return setmetatable({
+        Name = tostring(name or "Headless"),
+        Holder = nil,
+    }, Node)
+end
+
+function Node:AddTab(name)
+    return newNode(name)
+end
+
+function Node:AddLeftGroupbox(name)
+    return newNode(name)
+end
+
+function Node:AddRightGroupbox(name)
+    return newNode(name)
+end
+
+function Node:AddLeftTabbox(name)
+    return newNode(name)
+end
+
+function Node:AddToggle(id, opts)
+    return makeControl(id, opts, "toggle")
+end
+
+function Node:AddSlider(id, opts)
+    return makeControl(id, opts, "value")
+end
+
+function Node:AddDropdown(id, opts)
+    return makeControl(id, opts, "value")
+end
+
+function Node:AddInput(id, opts)
+    return makeControl(id, opts, "input")
+end
+
+function Node:AddLabel(text)
+    local label = {
+        Text = tostring(text or ""),
+    }
+
+    function label:SetText(value)
+        self.Text = tostring(value or "")
+        return self
+    end
+
+    function label:AddKeyPicker(id, opts)
+        return makeControl(id, opts or {}, "value")
+    end
+
+    return label
+end
+
+function Node:AddDivider()
+    return self
+end
+
+function Node:AddButton(text, callback)
+    local enabled = CONFIG.Buttons[tostring(text)] == true
+
+    if enabled and type(callback) == "function" then
+        task.defer(function()
+            local ok, err = pcall(callback)
+            if not ok then
+                warn(
+                    "[Headless Config] button error for "
+                    .. tostring(text)
+                    .. ": "
+                    .. tostring(err)
+                )
+            end
+        end)
+    end
+
+    return {
+        Text = tostring(text or ""),
+        Press = callback,
+    }
+end
+
+local Library = {
+    ToggleKeybind = nil,
+}
+
+function Library:CreateWindow(_)
+    local window = newNode("TownShip Headless")
+
+    -- Fake holder only for compatibility with old code.
+    -- Visible=false makes trade code treat the old menu as hidden.
+    window.Holder = {
+        Visible = false,
+        Position = UDim2.new(0, 0, 0, 0),
+    }
+
+    return window
+end
+
+function Library:Notify(message, _duration)
+    if CONFIG.System.PrintNotifications then
+        print("[TownShip]", tostring(message))
+    end
+end
+
+function Library:Toggle()
+    -- No UI exists. Keep it logically hidden.
+end
+
+function Library:Unload()
+    getgenv().TownShipHeadlessUnloaded = true
+    print("[TownShip] Headless unload flag set")
+end
+
+local ThemeManager = {
+    BuiltInThemes = {},
+}
+
+function ThemeManager:SetLibrary(_) end
+function ThemeManager:SetFolder(_) end
+function ThemeManager:ApplyTheme(_) end
+function ThemeManager:SaveDefault(_) end
+
+local SaveManager = {
+    Folder = "TownShip/Headless",
+    AutoloadLabel = nil,
+}
+
+function SaveManager:SetLibrary(_) end
+function SaveManager:SetFolder(folder)
+    self.Folder = folder or self.Folder
+end
+function SaveManager:IgnoreThemeSettings() end
+function SaveManager:SetIgnoreIndexes(_) end
+function SaveManager:BuildFolderTree() end
+function SaveManager:BuildConfigSection(_) end
+function SaveManager:LoadAutoloadConfig() end
+function SaveManager:RefreshConfigList()
+    return {}
+end
+
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -6088,7 +7060,7 @@ if IsLobbyLobby() then
     end
 
     local function showGoldAndWait()
-        while not (Window and Window.Holder and Window.Holder.Visible) do
+        while not (Window and Window.Holder) do
             task.wait(0.1)
         end
         local goldAmount = 0
@@ -6670,7 +7642,7 @@ end)
     local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
 
     local function waitForUIMenu()
-        while not (Window and Window.Holder and Window.Holder.Visible) do
+        while not (Window and Window.Holder) do
             task.wait(0.05)
         end
     end
@@ -7679,7 +8651,7 @@ if IsLobbyLobby() then
     }
     
         local function waitForCurrency()
-        while not (Window and Window.Holder and Window.Holder.Visible) do
+        while not (Window and Window.Holder) do
             task.wait(0.2)
         end
         
@@ -8460,7 +9432,7 @@ if Tabs.AutoFarm then
 
     local function waitForUI()
         local waited = 0
-        while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
+        while not (Window and Window.Holder) and waited < 1 do
             task.wait(0.05)
             waited = waited + 0.05
         end
