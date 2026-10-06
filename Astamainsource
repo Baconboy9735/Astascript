@@ -11671,7 +11671,8 @@ if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 -- The primary implementation above is the only active copy.
 
 
--- Block Auto Retry while target-mission return is running.
+-- Target-return lock.
+-- When the mission counter reaches its goal, Auto Retry must stop clicking Retry.
 getgenv().TownShipReturnInProgress = false
 
 if Tabs.AutoFarm then
@@ -11782,6 +11783,7 @@ if Tabs.AutoFarm then
 
             if not getgenv().StartRejoin
                 or getgenv().TownShipReturnInProgress then
+
                 firstSeenAt = 0
                 continue
             end
@@ -11831,25 +11833,33 @@ end
 task.spawn(function()
     local lastRewardsVisible = false
 
-    local function isButtonVisible(gui)
-        if not gui then return false end
+    local function IsActuallyVisible(gui)
+        if not gui then
+            return false
+        end
 
         local ok, result = pcall(function()
             if gui:IsA("GuiObject") then
-                if not gui.Visible then return false end
+                if not gui.Visible then
+                    return false
+                end
+
                 if gui.AbsoluteSize.X <= 0 or gui.AbsoluteSize.Y <= 0 then
                     return false
                 end
             end
 
             local current = gui
+
             while current and current ~= game do
                 if current:IsA("GuiObject") and not current.Visible then
                     return false
                 end
+
                 if current:IsA("ScreenGui") and not current.Enabled then
                     return false
                 end
+
                 current = current.Parent
             end
 
@@ -11859,16 +11869,17 @@ task.spawn(function()
         return ok and result == true
     end
 
+    -- Find the Rewards button that leaves the mission.
+    --
+    -- Different versions of the game may call it:
+    -- Leave / Lobby / Return / Exit / Menu.
+    --
+    -- Final fallback:
+    -- if the Rewards button container has Retry + one other visible button,
+    -- use the other button.
     local function findLeaveButton(player)
-        local ok, btn = pcall(function()
-            return player.PlayerGui.Interface.Rewards.Main.Info.Main.Buttons.Leave
-        end)
-
-        if ok and btn then
-            return btn
-        end
-
         local rewards = nil
+
         pcall(function()
             rewards = player.PlayerGui.Interface.Rewards
         end)
@@ -11877,66 +11888,126 @@ task.spawn(function()
             return nil
         end
 
-        local found = nil
+        local buttons = nil
+
         pcall(function()
-            for _, d in ipairs(rewards:GetDescendants()) do
-                if d:IsA("GuiButton") then
-                    local name = string.lower(tostring(d.Name or ""))
-                    local buttonText = ""
+            buttons = rewards.Main.Info.Main.Buttons
+        end)
+
+        local candidates = {}
+        local fallbackNonRetry = {}
+
+        local function inspect(root)
+            if not root then
+                return
+            end
+
+            for _, obj in ipairs(root:GetDescendants()) do
+                if obj:IsA("GuiButton") then
+                    local name = string.lower(tostring(obj.Name or ""))
+                    local textValue = ""
 
                     pcall(function()
-                        buttonText = string.lower(tostring(d.Text or ""))
+                        textValue = string.lower(tostring(obj.Text or ""))
                     end)
 
-                    if name == "leave"
-                        or buttonText == "leave"
-                        or buttonText:find("leave", 1, true) then
-                        found = d
-                        break
+                    local combined = name .. " " .. textValue
+
+                    if not combined:find("retry", 1, true) then
+                        table.insert(fallbackNonRetry, obj)
+
+                        local score = 0
+
+                        if combined:find("leave", 1, true) then
+                            score = 100
+                        elseif combined:find("lobby", 1, true) then
+                            score = 90
+                        elseif combined:find("return", 1, true) then
+                            score = 80
+                        elseif combined:find("exit", 1, true) then
+                            score = 70
+                        elseif combined:find("menu", 1, true) then
+                            score = 60
+                        end
+
+                        if score > 0 then
+                            table.insert(candidates, {
+                                Button = obj,
+                                Score = score,
+                            })
+                        end
                     end
                 end
             end
+        end
+
+        inspect(buttons or rewards)
+
+        table.sort(candidates, function(a, b)
+            return a.Score > b.Score
         end)
 
-        return found
+        for _, entry in ipairs(candidates) do
+            if IsActuallyVisible(entry.Button) then
+                return entry.Button
+            end
+        end
+
+        -- Very useful fallback for a Rewards UI that only has two actions:
+        -- Retry + one other button.
+        for _, btn in ipairs(fallbackNonRetry) do
+            if IsActuallyVisible(btn) then
+                return btn
+            end
+        end
+
+        return nil
     end
 
-    local function clickLeaveButton(btn)
-        if not btn then return false end
+    local function clickGuiButton(btn)
+        if not btn then
+            return false
+        end
 
         local VIM = game:GetService("VirtualInputManager")
         local GS = game:GetService("GuiService")
         local clicked = false
 
-        -- Same mouse-click style used by Auto Retry.
+        -- Method 1: center mouse click.
         pcall(function()
             local inset = GS:GetGuiInset()
             local pos = btn.AbsolutePosition
             local size = btn.AbsoluteSize
-            local x = pos.X + size.X / 2 + inset.X
-            local y = pos.Y + size.Y / 2 + inset.Y
+
+            local x = pos.X + (size.X / 2) + inset.X
+            local y = pos.Y + (size.Y / 2) + inset.Y
 
             VIM:SendMouseMoveEvent(x, y, game)
-            task.wait(0.02)
+            task.wait(0.03)
+
             VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
-            task.wait(0.04)
+            task.wait(0.05)
             VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
+
             clicked = true
         end)
 
-        -- Same keyboard fallback style used by Auto Retry.
+        -- Method 2: select button and press Enter.
         pcall(function()
             GS.SelectedObject = btn
-            task.wait(0.03)
+            task.wait(0.04)
+
             VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-            task.wait(0.03)
+            task.wait(0.04)
             VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+
             task.wait(0.05)
             GS.SelectedObject = nil
+
             clicked = true
         end)
 
-        -- Same GuiButton/firesignal fallback style used by Auto Retry.
+        -- Method 3: fire button signals if executor supports firesignal.
         pcall(function()
             if firesignal and btn.Activated then
                 firesignal(btn.Activated)
@@ -11946,14 +12017,14 @@ task.spawn(function()
 
         pcall(function()
             if firesignal and btn:IsA("GuiButton") then
-                for _, sig in ipairs({
+                for _, signalName in ipairs({
                     "MouseButton1Click",
                     "MouseButton1Down",
                     "Activated",
                 }) do
                     pcall(function()
-                        if btn[sig] then
-                            firesignal(btn[sig])
+                        if btn[signalName] then
+                            firesignal(btn[signalName])
                             clicked = true
                         end
                     end)
@@ -11964,46 +12035,99 @@ task.spawn(function()
         return clicked
     end
 
-    local function pressRewardsLeave(player)
+    local function clickRewardsLeave(player)
         local started = tick()
+        local lastDebug = 0
 
-        while tick() - started < 2 do
-            local leave = findLeaveButton(player)
+        -- Wait up to 4 seconds because the Rewards buttons may animate/create late.
+        while tick() - started < 4 do
+            local leaveButton = findLeaveButton(player)
 
-            if leave and isButtonVisible(leave) then
-                print("[MissionCounter] Leave button found - clicking Leave")
+            if leaveButton and IsActuallyVisible(leaveButton) then
+                print(
+                    "[MissionCounter] Leave target:",
+                    leaveButton:GetFullName()
+                )
 
-                for _ = 1, 3 do
-                    if not leave.Parent then break end
-                    clickLeaveButton(leave)
-                    task.wait(0.12)
+                -- Repeat because some clients ignore the first click while
+                -- the Rewards animation is still settling.
+                for attempt = 1, 5 do
+                    if not leaveButton.Parent then
+                        return true
+                    end
+
+                    clickGuiButton(leaveButton)
+                    task.wait(0.15)
+
+                    -- If Rewards disappeared, Leave worked.
+                    local rewardsStillVisible = false
+
+                    pcall(function()
+                        local rewards = player.PlayerGui.Interface.Rewards
+                        rewardsStillVisible =
+                            rewards ~= nil
+                            and IsActuallyVisible(rewards)
+                    end)
+
+                    if not rewardsStillVisible then
+                        print("[MissionCounter] Leave click succeeded")
+                        return true
+                    end
                 end
-
-                return true
             end
 
-            task.wait(0.08)
+            if tick() - lastDebug >= 1 then
+                lastDebug = tick()
+                print("[MissionCounter] Waiting for Leave button...")
+            end
+
+            task.wait(0.10)
         end
 
-        warn("[MissionCounter] Leave button not found/visible")
+        warn("[MissionCounter] Could not click Rewards Leave button")
         return false
     end
 
+    -- This is based on the script's existing FailSafe leave path.
+    -- It sends ALL known mission/lobby leave commands.
+    local function sendLeaveCommands()
+        -- Mission Leave remote.
+        pcall(function()
+            GET:InvokeServer("S_Missions", "Leave")
+        end)
+
+        -- POST teleport commands used by the existing FailSafe system.
+        pcall(function()
+            POST:FireServer("Functions", "Teleport", "Menu", nil)
+        end)
+
+        pcall(function()
+            POST:FireServer("Functions", "Teleport", "Lobby", nil)
+        end)
+
+        -- GET teleport fallback used elsewhere in the script.
+        pcall(function()
+            GET:InvokeServer("Functions", "Teleport", "Menu")
+        end)
+    end
+
     while true do
-        task.wait(0.4)
+        task.wait(0.25)
 
         local player = game:GetService("Players").LocalPlayer
+
         if not player or not player.PlayerGui then
             continue
         end
 
         local interface = player.PlayerGui:FindFirstChild("Interface")
+
         if not interface then
             continue
         end
 
         local rewards = interface:FindFirstChild("Rewards")
-        local isVisible = rewards and rewards.Visible
+        local isVisible = rewards and IsActuallyVisible(rewards)
 
         if isVisible and not lastRewardsVisible then
             completedMissions = completedMissions + 1
@@ -12011,7 +12135,9 @@ task.spawn(function()
 
             pcall(function()
                 if missionLabel then
-                    missionLabel:SetText("Completed: " .. completedMissions)
+                    missionLabel:SetText(
+                        "Completed: " .. completedMissions
+                    )
                 end
             end)
 
@@ -12029,20 +12155,33 @@ task.spawn(function()
                 and not isReturning then
 
                 isReturning = true
+
+                -- Stop Retry BEFORE it gets its first click.
                 getgenv().TownShipReturnInProgress = true
+                getgenv().StartRejoin = false
 
                 Library:Notify(
                     string.format(
-                        "Reached %d missions -> Leave + Return to Town Central...",
+                        "Reached %d missions -> Leaving mission...",
                         targetMissions
                     ),
                     5
                 )
 
-                -- Keep the existing Rewards settle.
-                task.wait(2.5)
+                -- Short settle so the Rewards buttons are fully created.
+                task.wait(0.45)
 
-                -- Reset counter before leaving.
+                -- First: actually click the visible Rewards Leave/Lobby button.
+                local clickedLeave = clickRewardsLeave(player)
+
+                -- Second: send the game's own Leave + lobby commands.
+                -- Do this even when the click worked, as a backup.
+                sendLeaveCommands()
+
+                -- Give those commands a moment to transition us.
+                task.wait(0.8)
+
+                -- Reset counter only after we have performed the leave actions.
                 completedMissions = 0
                 saveMissionsCount()
 
@@ -12052,29 +12191,26 @@ task.spawn(function()
                     end
                 end)
 
-                -- NEW: physically press the Rewards Leave button.
-                pressRewardsLeave(player)
+                -- Final fallback: Roblox teleport directly to lobby.
+                if game.PlaceId ~= LOBBY_ID then
+                    pcall(function()
+                        TeleportService:Teleport(LOBBY_ID, Player)
+                    end)
+                end
 
-                -- Backup mission-leave remote.
-                pcall(function()
-                    local leaveGET = ReplicatedStorage
-                        :WaitForChild("Assets")
-                        :WaitForChild("Remotes")
-                        :WaitForChild("GET")
-
-                    leaveGET:InvokeServer("S_Missions", "Leave")
-                end)
-
-                -- KEEP existing lobby return command.
-                task.wait(0.15)
-
-                pcall(function()
-                    TeleportService:Teleport(LOBBY_ID, Player)
-                end)
-
-                -- Existing fallback.
-                task.delay(5, function()
+                -- Keep retrying the leave/lobby path if the first transition
+                -- did not happen.
+                task.delay(3, function()
                     if game.PlaceId ~= LOBBY_ID then
+                        print(
+                            "[MissionCounter] Still in mission - retrying leave",
+                            "ButtonClicked=" .. tostring(clickedLeave)
+                        )
+
+                        sendLeaveCommands()
+
+                        task.wait(0.5)
+
                         pcall(function()
                             TeleportService:Teleport(LOBBY_ID, Player)
                         end)
