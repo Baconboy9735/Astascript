@@ -46,7 +46,7 @@ local CONFIG = {
         AutoJoin = true,             -- Automatically joins the destination selected in JoinDestination.
 
         AutoRedeem = false,          -- Automatically redeems stored codes.
-        AutoNotNow = false,          -- Automatically clicks "Not Now" when that supported popup appears.
+        AutoNotNow = true,          -- Automatically clicks "Not Now" when that supported popup appears.
         StopAtSpinLimit = false,     -- Stops family spinning when the amount in StopAtSpins is reached.
         AutoNotify = false,          -- Enables the family/spin notification system.
         AutoTeleport = false,        -- Automatically teleports after AutoTeleportTime.
