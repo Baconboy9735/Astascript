@@ -42,7 +42,7 @@ local CONFIG = {
     -- ========================================================
     MainMenu = {
         AutoSelect = true,           -- Automatically selects the configured slot when the slot screen appears.
-        AutoDialog = true,           -- Automatically clicks/continues supported dialog prompts.
+        AutoDialog = false,           -- Automatically clicks/continues supported dialog prompts.
         AutoJoin = true,             -- Automatically joins the destination selected in JoinDestination.
 
         AutoRedeem = false,          -- Automatically redeems stored codes.
@@ -1348,9 +1348,9 @@ end)
 --
 -- MAIN MENU:
 --   1) Wait for Interface.Title_Screen
---   2) Wait until the game's own loading text becomes "Loaded!"
---   3) THEN wait another 4 seconds
---   4) Only after that does the rest of this script continue
+--   2) Continue as soon as the character Slots are actually visible
+--   3) Also accept a visible "Loaded!" state as a fallback
+--   4) Ignore hidden/stale loading labels and use only a short settle
 --
 -- LOBBY:
 --   Keep the original Gear_Up.Lobby + 8 second settle.
@@ -1381,7 +1381,7 @@ do
         end
 
         if titleScreen then
-            print("[MainMenu] Title_Screen found — waiting for game data to say Loaded!")
+            print("[MainMenu] Title_Screen found — waiting for menu to be ready...")
 
             local function cleanText(value)
                 value = tostring(value or "")
@@ -1391,33 +1391,84 @@ do
                 return value
             end
 
+            local function isActuallyVisible(obj)
+                if not obj then
+                    return false
+                end
+
+                if obj:IsA("GuiObject") then
+                    if not obj.Visible then
+                        return false
+                    end
+
+                    if obj.AbsoluteSize.X <= 1 or obj.AbsoluteSize.Y <= 1 then
+                        return false
+                    end
+                end
+
+                local current = obj.Parent
+
+                while current and current ~= titleScreen.Parent do
+                    if current:IsA("GuiObject") and not current.Visible then
+                        return false
+                    end
+
+                    if current:IsA("ScreenGui") and not current.Enabled then
+                        return false
+                    end
+
+                    current = current.Parent
+                end
+
+                return true
+            end
+
+            local function isSlotsReady()
+                if not titleScreen or not titleScreen.Parent then
+                    return false
+                end
+
+                local slots = titleScreen:FindFirstChild("Slots")
+                if not slots then
+                    return false
+                end
+
+                -- If the character slots are already visible, the menu is usable.
+                return isActuallyVisible(slots)
+            end
+
             local function getMainMenuLoadState()
                 if not titleScreen or not titleScreen.Parent then
-                    return nil, nil
+                    return false, nil
+                end
+
+                -- Main fix: don't wait for the Loaded! label if the slot screen
+                -- is already visible and usable.
+                if isSlotsReady() then
+                    return true, "Slots Ready"
                 end
 
                 local loadingText = nil
 
-                -- Search only inside the game's Title_Screen so executor
-                -- notifications such as "Game Loaded" cannot fool the check.
                 for _, obj in ipairs(titleScreen:GetDescendants()) do
                     if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-                        local raw = cleanText(obj.Text)
-                        local lower = string.lower(raw)
+                        -- Ignore hidden/old loading labels left in the UI tree.
+                        if isActuallyVisible(obj) then
+                            local raw = cleanText(obj.Text)
+                            local lower = string.lower(raw)
 
-                        -- Exact/near-exact success state.
-                        if lower == "loaded!"
-                            or lower == "loaded"
-                            or lower:find("loaded!", 1, true) then
+                            if lower == "loaded!"
+                                or lower == "loaded"
+                                or lower:find("loaded!", 1, true) then
 
-                            return true, raw
-                        end
+                                return true, raw
+                            end
 
-                        -- Remember the current game's loading message for debug.
-                        if lower:find("loading data", 1, true)
-                            or lower:find("loading", 1, true) then
+                            if lower:find("loading data", 1, true)
+                                or lower:find("loading", 1, true) then
 
-                            loadingText = raw
+                                loadingText = raw
+                            end
                         end
                     end
                 end
@@ -1429,16 +1480,15 @@ do
             local lastPrintedState = nil
             local dataLoaded = false
 
-            -- Give the game's data loader time to finish before ANY of the
-            -- Auto Select / Auto Dialog / Auto Join callbacks are created.
-            while (tick() - dataStart) < 120 do
+            -- Short fallback only. Normally this ends as soon as Slots appear.
+            while (tick() - dataStart) < 20 do
                 local loaded, stateText = getMainMenuLoadState()
 
                 if loaded then
                     dataLoaded = true
                     print(
-                        "[MainMenu] Game data ready: "
-                        .. tostring(stateText or "Loaded!")
+                        "[MainMenu] Menu ready: "
+                        .. tostring(stateText or "Ready")
                     )
                     break
                 end
@@ -1453,29 +1503,19 @@ do
                     )
                 end
 
-                task.wait(0.15)
+                task.wait(0.05)
             end
 
             if dataLoaded then
-                print("[MainMenu] Loaded! detected — waiting 4s settle...")
-                task.wait(4)
+                task.wait(0.75)
                 print("[MainMenu] Ready — continuing script")
             else
-                -- Do NOT start automation immediately if the game is still
-                -- visibly stuck on Loading Data. Give it a conservative
-                -- fallback delay instead.
-                warn(
-                    "[MainMenu] Loaded! was not detected within 120s. "
-                    .. "Waiting 4 more seconds before continuing."
-                )
-                task.wait(4)
+                warn("[MainMenu] Ready state not detected — continuing anyway")
+                task.wait(1)
             end
         else
-            warn(
-                "[MainMenu] Title_Screen was not detected within 90s. "
-                .. "Waiting 4 seconds before continuing."
-            )
-            task.wait(4)
+            warn("[MainMenu] Title_Screen wasn't detected — continuing")
+            task.wait(1)
         end
 
     elseif PlaceId == LOBBY_PLACE or PlaceId == TRADE_PLACE then
