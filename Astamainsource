@@ -290,7 +290,7 @@ local CONFIG = {
         },
 
         Return = {
-            TargetMissions = 1,     -- Number of completed missions before AutoReturn goes back to the lobby.
+            TargetMissions = 20,     -- Number of completed missions before AutoReturn goes back to the lobby.
         },
 
         FailSafe = {
