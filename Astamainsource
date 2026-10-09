@@ -126,7 +126,7 @@ local CONFIG = {
         },
 
         Cosmetics = {
-            AutoSell = true,         -- Automatically sells the configured supported cosmetics.
+            AutoSell = true,         -- Automatically sells all obtainable mission-drop cosmetics listed in Auto Sell Cosmetics.
             Repeat = 3,              -- Number of sell attempts made for each cosmetic per cycle.
             Delay = 0.25,            -- Seconds between cosmetic sell requests.
         },
@@ -2461,10 +2461,40 @@ if IsLobbyLobby() then
             :WaitForChild("GET")
 
         local Cosmetics = {
-            "Altar Chains",
+            -- Any Mission (Aberrant+)
             "Angel's Halo",
+
+            -- Chapel
+            "Altar Chains",
             "Hardened Shield",
-            "Kitsune Mask"
+
+            -- Shiganshina
+            "Blood Vial",
+            "Kitsune Mask",
+
+            -- Trost
+            "Recon Visor",
+            "Shogun's Helm",
+
+            -- Outskirts
+            "Midnight Mask",
+            "Grimmjow's Mask",
+
+            -- Giant Forest
+            "Mushroom Hat",
+            "Warrior's Medallion",
+
+            -- Utgard
+            "Wizard Hat",
+            "Kitsune Ribbon",
+
+            -- Loading Docks
+            "Regiment Cloak (Green)",
+            "Regiment Cloak (Black)",
+
+            -- Stohess
+            "Bowler Hat (Black)",
+            "Bowler Hat (White)"
         }
 
         local enabled = false
@@ -6125,7 +6155,7 @@ if Tabs.Lobby then
   
     local AutoMissionTabbox = Tabs.Lobby:AddLeftTabbox("Auto Content")
     local MissionTab = AutoMissionTabbox:AddTab("Mission")
-    print("[Mission] SMART BUILD 2026-08-30 (MODIFIERS FIXED) LOADED")
+    print("[Mission] FAST EXACT-MAP BUILD - STALE MISSION + MODIFIER SPEED FIX LOADED")
 
     local MissionObjectives = {
         ["Shiganshina"] = {"Skirmish","Breach","Random"},
@@ -6195,57 +6225,213 @@ if Tabs.Lobby then
         return success and level or 1
     end
 
+    local KNOWN_MISSION_MAPS = {
+        Shiganshina = true,
+        Trost = true,
+        Outskirts = true,
+        Forest = true,
+        Utgard = true,
+        Docks = true,
+        Stohess = true,
+        Chapel = true,
+    }
+
     local function GetMyMission(timeout)
         timeout = timeout or 1.5
-        local start = tick()
-        while tick() - start < timeout do
+        local startTime = tick()
+
+        while tick() - startTime < timeout do
             local missions = game:GetService("ReplicatedStorage"):FindFirstChild("Missions")
+
             if missions then
                 for _, mission in ipairs(missions:GetChildren()) do
                     local leader = mission:FindFirstChild("Leader")
+
                     if leader and leader.Value == player.Name then
                         return mission
                     end
                 end
             end
-            task.wait(0.08)
+
+            task.wait(0.03)
         end
+
         return nil
+    end
+
+    -- Try to discover the replicated map name without depending on one
+    -- exact game structure.  We only reject the mission when the replicated
+    -- data clearly identifies a DIFFERENT known map.
+    local function GetReplicatedMissionMap(mission)
+        if not mission then return nil end
+
+        local candidates = {
+            mission:GetAttribute("Map"),
+            mission:GetAttribute("MapName"),
+            mission:GetAttribute("Mission"),
+            mission:GetAttribute("MissionName"),
+        }
+
+        for _, value in ipairs(candidates) do
+            if type(value) == "string" and KNOWN_MISSION_MAPS[value] then
+                return value
+            end
+        end
+
+        for _, obj in ipairs(mission:GetDescendants()) do
+            if obj:IsA("StringValue") then
+                local value = tostring(obj.Value)
+
+                if KNOWN_MISSION_MAPS[value] then
+                    return value
+                end
+            end
+        end
+
+        return nil
+    end
+
+    local function MissionMatchesTarget(mission, targetName)
+        if not mission then return false end
+
+        local replicatedMap = GetReplicatedMissionMap(mission)
+
+        -- If the game does not replicate the map name here, do not falsely
+        -- reject it.  The important stale-mission protection is that the
+        -- previous mission must disappear BEFORE Create is sent.
+        if not replicatedMap then
+            return true
+        end
+
+        if replicatedMap ~= targetName then
+            warn(
+                "[Mission] Wrong mission detected:",
+                replicatedMap,
+                "wanted:",
+                targetName
+            )
+            return false
+        end
+
+        return true
     end
 
     local function LeaveMission(waitForGone)
         SafeMissionCall("S_Missions", "Leave")
-        if waitForGone == false then return end
-        local start = tick()
-        while tick() - start < 1.5 do
-            if not GetMyMission(0.1) then break end
-            task.wait(0.08)
+
+        if waitForGone == false then
+            return true
         end
-        task.wait(0.15)
+
+        local started = tick()
+
+        while tick() - started < 2.5 do
+            if not GetMyMission(0.05) then
+                return true
+            end
+
+            -- Re-send Leave while a stale mission still exists.
+            SafeMissionCall("S_Missions", "Leave")
+            task.wait(0.06)
+        end
+
+        return GetMyMission(0.05) == nil
+    end
+
+    local function EnsureNoMission()
+        local current = GetMyMission(0.08)
+
+        if not current then
+            return true
+        end
+
+        print("[Mission] Removing stale mission before Create...")
+
+        for attempt = 1, 5 do
+            SafeMissionCall("S_Missions", "Leave")
+
+            local started = tick()
+            while tick() - started < 0.45 do
+                if not GetMyMission(0.03) then
+                    return true
+                end
+                task.wait(0.03)
+            end
+        end
+
+        return GetMyMission(0.05) == nil
     end
 
     local function CreateMission(missionName, objective, difficulty)
-        for attempt = 1, 3 do
-            if not missionRunning then return false end
-
-            local success, result = SafeMissionCall("S_Missions", "Create", {
-                Difficulty = difficulty,
-                Type = "Missions",
-                Name = missionName,
-                Objective = objective
-            })
-
-            task.wait(0.12)
-            local mission = GetMyMission(0.7)
-            if mission then
-                return true, mission
+        for attempt = 1, 4 do
+            if not missionRunning then
+                return false
             end
 
-            if attempt < 3 then
+            -- CRITICAL:
+            -- Do not send Create while an older Chapel/other mission is still
+            -- owned by this player. The old build could see that stale mission
+            -- after Create and incorrectly count creation as successful.
+            if not EnsureNoMission() then
+                warn(
+                    "[Mission] Could not clear previous mission - retrying",
+                    attempt
+                )
+                task.wait(0.12)
+                continue
+            end
+
+            print(
+                string.format(
+                    "[Mission] Creating EXACT map=%s | obj=%s | diff=%s | attempt=%d",
+                    tostring(missionName),
+                    tostring(objective),
+                    tostring(difficulty),
+                    attempt
+                )
+            )
+
+            local callOk, result = SafeMissionCall(
+                "S_Missions",
+                "Create",
+                {
+                    Difficulty = difficulty,
+                    Type = "Missions",
+                    Name = missionName,
+                    Objective = objective,
+                }
+            )
+
+            if not callOk then
+                warn("[Mission] Create remote failed on attempt", attempt)
+                task.wait(0.10)
+                continue
+            end
+
+            -- Wait only for a mission that appeared AFTER stale cleanup.
+            local createdMission = GetMyMission(0.9)
+
+            if createdMission then
+                if MissionMatchesTarget(createdMission, missionName) then
+                    print(
+                        "[Mission] Create verified:",
+                        missionName,
+                        objective,
+                        difficulty
+                    )
+                    return true, createdMission
+                end
+
+                -- A clearly wrong map appeared. Never start it.
+                warn("[Mission] Rejecting wrong created mission")
                 LeaveMission(true)
-                task.wait(0.2)
+            end
+
+            if attempt < 4 then
+                task.wait(0.10)
             end
         end
+
         return false
     end
 
@@ -6254,139 +6440,143 @@ if Tabs.Lobby then
     -- ═══════════════════════════════════════════════════════════
 
     local function ClearMissionModifiers()
-        if not missionRunning then return end
-        for _ = 1, 3 do
-            if not missionRunning then break end
-            SafeMissionCall("S_Missions", "ClearModifiers")
-            task.wait(0.18)
+        if not missionRunning then
+            return false
         end
-        task.wait(0.35)
+
+        -- One clear request is enough. The old build sent this 3 times and
+        -- inserted almost a full second of unnecessary delay.
+        local ok = SafeMissionCall("S_Missions", "ClearModifiers")
+        task.wait(0.06)
+        return ok
     end
 
-    local function ApplyModifier(mod)
-        local names = {mod}
-        local noSpace = mod:gsub("%s+", "")
-        if noSpace ~= mod then
-            table.insert(names, noSpace)
+    local function ApplyModifierFast(mod)
+        if not missionRunning then
+            return false
         end
 
-        for _, name in ipairs(names) do
-            for attempt = 1, 4 do
-                if not missionRunning then return false end
+        -- IMPORTANT:
+        -- InvokeServer often succeeds but returns nil for action-style remotes.
+        -- The old code treated nil as failure and retried up to 8 calls per
+        -- modifier, which is why the modifiers looked extremely slow.
+        local callOk = SafeMissionCall("S_Missions", "Modify", mod)
 
-                local success, result = SafeMissionCall("S_Missions", "Modify", name)
+        if callOk then
+            return true
+        end
 
-                if success then
-                    if result == true or result == "true" or result == 1 then
-                        return true
-                    end
-                    if type(result) == "table" and (result.Success == true or result.success == true) then
-                        return true
-                    end
-                end
+        -- One compact fallback using the no-space variant.
+        local noSpace = tostring(mod):gsub("%s+", "")
 
-                task.wait(0.18 + (attempt * 0.05))
+        if noSpace ~= mod then
+            task.wait(0.04)
+            callOk = SafeMissionCall("S_Missions", "Modify", noSpace)
+
+            if callOk then
+                return true
             end
         end
+
         return false
     end
 
     local function ApplyMissionModifiers()
-        if not missionRunning then return end
+        if not missionRunning then
+            return false
+        end
 
-        local selected = {}
+        local selectedSet = {}
+
         pcall(function()
-            if Options and Options.MissionModifiersDropdown and Options.MissionModifiersDropdown.Value then
-                local value = Options.MissionModifiersDropdown.Value
-                if type(value) == "table" then
-                    for mod, enabled in pairs(value) do
-                        if enabled then
-                            table.insert(selected, mod)
-                        end
+            if Options
+                and Options.MissionModifiersDropdown
+                and type(Options.MissionModifiersDropdown.Value) == "table" then
+
+                for mod, enabled in pairs(Options.MissionModifiersDropdown.Value) do
+                    if enabled then
+                        selectedSet[mod] = true
                     end
                 end
             end
         end)
 
-        if #selected == 0 then
-            Library:Notify("No modifiers selected", 2)
-            return
+        local ordered = {}
+
+        -- Preserve the game's known modifier order, but only send selected ones.
+        for _, mod in ipairs(ModifiersList) do
+            if selectedSet[mod] then
+                table.insert(ordered, mod)
+            end
         end
 
-        -- ترتيب ثابت
-        local ordered = {}
-        for _, mod in ipairs(ModifiersList) do
-            for _, sel in ipairs(selected) do
-                if sel == mod then
-                    table.insert(ordered, mod)
-                    break
-                end
-            end
-        end
-        for _, sel in ipairs(selected) do
-            local found = false
-            for _, o in ipairs(ordered) do
-                if o == sel then found = true break end
-            end
-            if not found then
-                table.insert(ordered, sel)
-            end
+        if #ordered == 0 then
+            Library:Notify("No modifiers selected", 2)
+            return true
         end
 
         ClearMissionModifiers()
-        if not missionRunning then return end
 
-        local applied = 0
-        local failed = {}
-
-        for _, mod in ipairs(ordered) do
-            if not missionRunning then break end
-
-            local success = ApplyModifier(mod)
-            if success then
-                applied += 1
-                print("[Mission] ✓ Modifier applied:", mod)
-            else
-                table.insert(failed, mod)
-                warn("[Mission] ✗ Failed modifier:", mod)
-            end
-            task.wait(0.16)
+        if not missionRunning then
+            return false
         end
 
-        -- Retry قوي للفاشلين
+        local failed = {}
+
+        -- Fast sequential burst. Small spacing avoids hammering the remote
+        -- while still applying the full config in a fraction of the old time.
+        for index, mod in ipairs(ordered) do
+            if not missionRunning then
+                return false
+            end
+
+            local ok = ApplyModifierFast(mod)
+
+            if ok then
+                print(
+                    string.format(
+                        "[Mission] ✓ Modifier %d/%d: %s",
+                        index,
+                        #ordered,
+                        mod
+                    )
+                )
+            else
+                table.insert(failed, mod)
+            end
+
+            task.wait(0.035)
+        end
+
+        -- Retry only actual InvokeServer failures, once.
         if #failed > 0 and missionRunning then
-            task.wait(0.5)
-            Library:Notify("Retrying failed modifiers...", 2)
+            task.wait(0.08)
 
             local stillFailed = {}
+
             for _, mod in ipairs(failed) do
-                if not missionRunning then break end
-
-                local success = false
-                for _ = 1, 3 do
-                    success = ApplyModifier(mod)
-                    if success then break end
-                    task.wait(0.22)
-                end
-
-                if success then
-                    applied += 1
-                    print("[Mission] ✓ Retry success:", mod)
-                else
+                if not ApplyModifierFast(mod) then
                     table.insert(stillFailed, mod)
                 end
-                task.wait(0.18)
+                task.wait(0.04)
             end
+
             failed = stillFailed
         end
 
-        task.wait(0.4)
-
         if #failed == 0 then
-            Library:Notify(string.format("Applied %d/%d modifiers", applied, #selected), 3)
-        else
-            Library:Notify(string.format("Applied %d/%d (failed: %s)", applied, #selected, table.concat(failed, ", ")), 4)
+            Library:Notify(
+                string.format("Modifiers ready: %d/%d", #ordered, #ordered),
+                2
+            )
+            return true
         end
+
+        Library:Notify(
+            "Modifier call failed: " .. table.concat(failed, ", "),
+            3
+        )
+        return false
     end
 
     local function StartMission()
@@ -6440,9 +6630,26 @@ if Tabs.Lobby then
         if not missionRunning or missionSessionId ~= mySession then return end
 
         local selectionVersion = missionSelectionVersion
-        local currentMission = (Options and Options.MissionDropdown and Options.MissionDropdown.Value) or State_Mission.Name
-        local objective = (Options and Options.MissionObjectiveDropdown and Options.MissionObjectiveDropdown.Value) or State_Mission.Objective
-        local selectedDifficulty = (Options and Options.MissionDifficultyDropdown and Options.MissionDifficultyDropdown.Value) or State_Mission.Difficulty
+
+        -- Headless build: CONFIG is authoritative.
+        -- This prevents a stale dropdown/control value from falling back to
+        -- Chapel even though CONFIG.Lobby.Mission.Name is Shiganshina.
+        local configMission = CONFIG
+            and CONFIG.Lobby
+            and CONFIG.Lobby.Mission
+            or nil
+
+        local currentMission =
+            (configMission and configMission.Name)
+            or State_Mission.Name
+
+        local objective =
+            (configMission and configMission.Objective)
+            or State_Mission.Objective
+
+        local selectedDifficulty =
+            (configMission and configMission.Difficulty)
+            or State_Mission.Difficulty
 
         if not MissionObjectives[currentMission] then
             currentMission = State_Mission.Name
@@ -6469,12 +6676,26 @@ if Tabs.Lobby then
         end
 
         local function SelectionStillCurrent()
-            local liveMission = (Options and Options.MissionDropdown and Options.MissionDropdown.Value) or State_Mission.Name
-            local liveObjective = (Options and Options.MissionObjectiveDropdown and Options.MissionObjectiveDropdown.Value) or State_Mission.Objective
-            local liveDifficulty = (Options and Options.MissionDifficultyDropdown and Options.MissionDifficultyDropdown.Value) or State_Mission.Difficulty
+            local liveConfig = CONFIG
+                and CONFIG.Lobby
+                and CONFIG.Lobby.Mission
+                or nil
+
+            local liveMission =
+                (liveConfig and liveConfig.Name)
+                or State_Mission.Name
+
+            local liveObjective =
+                (liveConfig and liveConfig.Objective)
+                or State_Mission.Objective
+
+            local liveDifficulty =
+                (liveConfig and liveConfig.Difficulty)
+                or State_Mission.Difficulty
+
             return missionSelectionVersion == selectionVersion
                 and liveMission == currentMission
-                and liveObjective == (Options and Options.MissionObjectiveDropdown and Options.MissionObjectiveDropdown.Value or objective)
+                and liveObjective == objective
                 and liveDifficulty == selectedDifficulty
         end
 
@@ -6536,7 +6757,7 @@ if Tabs.Lobby then
             return
         end
 
-        task.wait(0.3)
+        task.wait(0.08)
 
         if not missionRunning or missionSessionId ~= mySession or not SelectionStillCurrent() then
             LeaveMission(true)
@@ -13906,4 +14127,3 @@ end
 task.spawn(function()
     task.wait(1)
 end)
-
