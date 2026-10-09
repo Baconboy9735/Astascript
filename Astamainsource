@@ -280,7 +280,7 @@ local CONFIG = {
 
         Performance = {
             UIScale = 100,           -- Old UI scale percentage. Kept for compatibility even though this build is headless.
-            FPSLimit = 15,           -- FPS cap from the config you sent.
+            FPSLimit = 30,           -- FPS cap from the config you sent.
 
             RenderModes = {          -- Performance/render optimizations to enable.
                 "Delete Map",        -- Removes supported map objects to reduce rendering load.
@@ -6155,7 +6155,7 @@ if Tabs.Lobby then
   
     local AutoMissionTabbox = Tabs.Lobby:AddLeftTabbox("Auto Content")
     local MissionTab = AutoMissionTabbox:AddTab("Mission")
-    print("[Mission] FAST EXACT-MAP BUILD - STALE MISSION + MODIFIER SPEED FIX LOADED")
+    print("[Mission] STRICT MODIFIER GATE BUILD - NEVER STARTS WITH FAILED MODIFIERS")
 
     local MissionObjectives = {
         ["Shiganshina"] = {"Skirmish","Breach","Random"},
@@ -6481,7 +6481,7 @@ if Tabs.Lobby then
         return false
     end
 
-    local function ApplyMissionModifiers()
+    local function ApplyMissionModifiers(mySession)
         if not missionRunning then
             return false
         end
@@ -6503,7 +6503,7 @@ if Tabs.Lobby then
 
         local ordered = {}
 
-        -- Preserve the game's known modifier order, but only send selected ones.
+        -- Preserve the game's known modifier order.
         for _, mod in ipairs(ModifiersList) do
             if selectedSet[mod] then
                 table.insert(ordered, mod)
@@ -6515,67 +6515,138 @@ if Tabs.Lobby then
             return true
         end
 
-        ClearMissionModifiers()
+        -- Clear once before the first application pass.
+        if not ClearMissionModifiers() then
+            warn("[Mission] ClearModifiers call failed - retrying...")
+            while missionRunning
+                and missionSessionId == mySession
+                and GetMyMission(0.05) do
 
-        if not missionRunning then
+                if ClearMissionModifiers() then
+                    break
+                end
+
+                task.wait(0.15)
+            end
+        end
+
+        if not missionRunning
+            or missionSessionId ~= mySession
+            or not GetMyMission(0.08) then
+
             return false
         end
 
-        local failed = {}
+        local pending = {}
+        for _, mod in ipairs(ordered) do
+            pending[mod] = true
+        end
 
-        -- Fast sequential burst. Small spacing avoids hammering the remote
-        -- while still applying the full config in a fraction of the old time.
-        for index, mod in ipairs(ordered) do
-            if not missionRunning then
-                return false
+        local appliedCount = 0
+        local round = 0
+
+        -- STRICT GATE:
+        -- Keep retrying ONLY the modifiers that have not succeeded yet.
+        -- There is intentionally no "start anyway" fallback.
+        while missionRunning
+            and missionSessionId == mySession
+            and GetMyMission(0.08) do
+
+            round += 1
+            local progressThisRound = 0
+
+            for _, mod in ipairs(ordered) do
+                if not missionRunning
+                    or missionSessionId ~= mySession then
+                    return false
+                end
+
+                if pending[mod] then
+                    local ok = ApplyModifierFast(mod)
+
+                    if ok then
+                        pending[mod] = nil
+                        appliedCount += 1
+                        progressThisRound += 1
+
+                        print(
+                            string.format(
+                                "[Mission] ✓ Applied %d/%d: %s",
+                                appliedCount,
+                                #ordered,
+                                mod
+                            )
+                        )
+                    else
+                        warn(
+                            string.format(
+                                "[Mission] ✗ Modifier still pending: %s (round %d)",
+                                mod,
+                                round
+                            )
+                        )
+                    end
+
+                    task.wait(0.05)
+                end
             end
 
-            local ok = ApplyModifierFast(mod)
+            local remaining = {}
+            for _, mod in ipairs(ordered) do
+                if pending[mod] then
+                    table.insert(remaining, mod)
+                end
+            end
 
-            if ok then
+            if #remaining == 0 then
                 print(
                     string.format(
-                        "[Mission] ✓ Modifier %d/%d: %s",
-                        index,
+                        "[Mission] ALL MODIFIERS APPLIED: %d/%d",
                         #ordered,
-                        mod
+                        #ordered
                     )
                 )
-            else
-                table.insert(failed, mod)
+
+                Library:Notify(
+                    string.format(
+                        "All modifiers applied: %d/%d",
+                        #ordered,
+                        #ordered
+                    ),
+                    2
+                )
+
+                return true
             end
 
-            task.wait(0.035)
-        end
-
-        -- Retry only actual InvokeServer failures, once.
-        if #failed > 0 and missionRunning then
-            task.wait(0.08)
-
-            local stillFailed = {}
-
-            for _, mod in ipairs(failed) do
-                if not ApplyModifierFast(mod) then
-                    table.insert(stillFailed, mod)
-                end
-                task.wait(0.04)
-            end
-
-            failed = stillFailed
-        end
-
-        if #failed == 0 then
+            -- Never start while anything is still pending.
             Library:Notify(
-                string.format("Modifiers ready: %d/%d", #ordered, #ordered),
+                string.format(
+                    "Waiting for modifiers %d/%d | pending: %s",
+                    appliedCount,
+                    #ordered,
+                    table.concat(remaining, ", ")
+                ),
                 2
             )
-            return true
+
+            print(
+                "[Mission] START BLOCKED - waiting for:",
+                table.concat(remaining, ", ")
+            )
+
+            -- Fast retry while progress is being made.
+            -- If a modifier is stubborn, slow down slightly to avoid remote spam.
+            if progressThisRound > 0 then
+                task.wait(0.10)
+            elseif round % 10 == 0 then
+                task.wait(0.50)
+            else
+                task.wait(0.15)
+            end
         end
 
-        Library:Notify(
-            "Modifier call failed: " .. table.concat(failed, ", "),
-            3
-        )
+        warn("[Mission] Modifier gate cancelled because mission/session ended")
         return false
     end
 
@@ -6750,21 +6821,43 @@ if Tabs.Lobby then
         end
 
         Library:Notify("Applying modifiers...", 2)
-        ApplyMissionModifiers()
 
-        if not missionRunning or missionSessionId ~= mySession or not SelectionStillCurrent() then
+        local modifiersReady = ApplyMissionModifiers(mySession)
+
+        -- HARD BLOCK:
+        -- StartMission is never called unless every selected modifier
+        -- returned success.
+        if not modifiersReady then
+            warn("[Mission] Start cancelled - modifiers are not all applied")
             LeaveMission(true)
             return
         end
 
-        task.wait(0.08)
+        if not missionRunning
+            or missionSessionId ~= mySession
+            or not SelectionStillCurrent() then
 
-        if not missionRunning or missionSessionId ~= mySession or not SelectionStillCurrent() then
             LeaveMission(true)
             return
         end
 
-        Library:Notify("Starting: " .. currentMission .. " (" .. targetDifficulty .. ")", 2)
+        -- Final safety check before Start.
+        print("[Mission] Modifier gate PASS - mission may start now")
+        task.wait(0.05)
+
+        if not missionRunning
+            or missionSessionId ~= mySession
+            or not SelectionStillCurrent() then
+
+            LeaveMission(true)
+            return
+        end
+
+        Library:Notify(
+            "Starting: " .. currentMission .. " (" .. targetDifficulty .. ")",
+            2
+        )
+
         local started = StartMission()
 
         if started then
