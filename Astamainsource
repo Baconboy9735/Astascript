@@ -1,4 +1,20 @@
 -- ============================================================
+-- TOWNSHIP HEADLESS - PERSISTENT QUEUE ON TELEPORT
+--
+-- First run:
+--   * saves the original full script to TownShip/queued_main.lua
+--   * saves a persistent teleport loader to TownShip/queue_loader.lua
+--   * queues that loader for the next teleport
+--
+-- After teleport:
+--   * loader queues itself again for the NEXT teleport
+--   * loader executes TownShip/queued_main.lua
+--
+-- This keeps working across repeated teleports.
+-- ============================================================
+
+local __TOWNSHIP_MAIN_SOURCE = [====[
+-- ============================================================
 -- TOWNSHIP HEADLESS / CONFIG-ONLY BUILD
 -- Based on TownShip_Optimized_Fixed_8sLobbyWait.lua
 -- No Linoria menu is downloaded or rendered.
@@ -13907,3 +13923,146 @@ task.spawn(function()
     task.wait(1)
 end)
 
+
+]====]
+
+do
+    local MAIN_PATH = "TownShip/queued_main.lua"
+    local LOADER_PATH = "TownShip/queue_loader.lua"
+
+    local function getQueueFunction()
+        if type(queue_on_teleport) == "function" then return queue_on_teleport end
+        if type(queueonteleport) == "function" then return queueonteleport end
+        if syn and type(syn.queue_on_teleport) == "function" then return syn.queue_on_teleport end
+        if fluxus and type(fluxus.queue_on_teleport) == "function" then return fluxus.queue_on_teleport end
+
+        local env = (getgenv and getgenv()) or _G
+        if env and type(env.queue_on_teleport) == "function" then
+            return env.queue_on_teleport
+        end
+
+        return nil
+    end
+
+    pcall(function()
+        if isfolder and makefolder and not isfolder("TownShip") then
+            makefolder("TownShip")
+        end
+    end)
+
+    local fileSupport =
+        type(writefile) == "function"
+        and type(readfile) == "function"
+        and type(isfile) == "function"
+
+    if fileSupport then
+        local okMain, errMain = pcall(function()
+            writefile(MAIN_PATH, __TOWNSHIP_MAIN_SOURCE)
+        end)
+        if not okMain then
+            warn("[TownShip Queue] Failed saving main script:", errMain)
+        end
+
+        local okLoader, errLoader = pcall(function()
+            writefile(LOADER_PATH, [====[
+-- TownShip persistent teleport loader
+local function getQueueFunction()
+    if type(queue_on_teleport) == "function" then return queue_on_teleport end
+    if type(queueonteleport) == "function" then return queueonteleport end
+    if syn and type(syn.queue_on_teleport) == "function" then return syn.queue_on_teleport end
+    if fluxus and type(fluxus.queue_on_teleport) == "function" then return fluxus.queue_on_teleport end
+
+    local env = (getgenv and getgenv()) or _G
+    if env and type(env.queue_on_teleport) == "function" then
+        return env.queue_on_teleport
+    end
+
+    return nil
+end
+
+local queue = getQueueFunction()
+
+if queue then
+    queue([==[
+        repeat task.wait(0.1) until game:IsLoaded()
+        task.wait(0.75)
+
+        local loaderPath = "TownShip/queue_loader.lua"
+        if isfile and readfile and loadstring and isfile(loaderPath) then
+            local ok, err = pcall(function()
+                loadstring(readfile(loaderPath), "@TownShipQueueLoader")()
+            end)
+            if not ok then
+                warn("[TownShip Queue] Loader error:", err)
+            end
+        else
+            warn("[TownShip Queue] queue_loader.lua missing after teleport")
+        end
+    ]==])
+    print("[TownShip Queue] Re-queued for next teleport")
+else
+    warn("[TownShip Queue] Executor does not support queue_on_teleport")
+end
+
+repeat task.wait(0.1) until game:IsLoaded()
+task.wait(0.75)
+
+if isfile and readfile and loadstring and isfile("TownShip/queued_main.lua") then
+    local ok, err = pcall(function()
+        loadstring(readfile("TownShip/queued_main.lua"), "@TownShipMain")()
+    end)
+    if not ok then
+        warn("[TownShip Queue] Main script error:", err)
+    end
+else
+    warn("[TownShip Queue] queued_main.lua missing")
+end
+]====])
+        end)
+        if not okLoader then
+            warn("[TownShip Queue] Failed saving queue loader:", errLoader)
+        end
+    else
+        warn("[TownShip Queue] Missing writefile/readfile/isfile support")
+    end
+
+    local queue = getQueueFunction()
+
+    if queue and fileSupport then
+        local ok, err = pcall(function()
+            queue([==[
+                repeat task.wait(0.1) until game:IsLoaded()
+                task.wait(0.75)
+
+                local loaderPath = "TownShip/queue_loader.lua"
+                if isfile and readfile and loadstring and isfile(loaderPath) then
+                    local ok2, err2 = pcall(function()
+                        loadstring(readfile(loaderPath), "@TownShipQueueLoader")()
+                    end)
+                    if not ok2 then
+                        warn("[TownShip Queue] Loader error:", err2)
+                    end
+                else
+                    warn("[TownShip Queue] queue_loader.lua missing after teleport")
+                end
+            ]==])
+        end)
+
+        if ok then
+            print("[TownShip Queue] ENABLED - queued for next teleport")
+        else
+            warn("[TownShip Queue] Failed to queue:", err)
+        end
+    elseif not queue then
+        warn("[TownShip Queue] Executor does not support queue_on_teleport")
+    end
+end
+
+-- Run the original TownShip script now.
+local __ok, __err = pcall(function()
+    loadstring(__TOWNSHIP_MAIN_SOURCE, "@TownShipMainInitial")()
+end)
+
+if not __ok then
+    warn("[TownShip Queue] Initial main script error:", __err)
+end
