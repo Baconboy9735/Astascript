@@ -6155,7 +6155,7 @@ if Tabs.Lobby then
   
     local AutoMissionTabbox = Tabs.Lobby:AddLeftTabbox("Auto Content")
     local MissionTab = AutoMissionTabbox:AddTab("Mission")
-    print("[Mission] STRICT MODIFIER GATE BUILD - NEVER STARTS WITH FAILED MODIFIERS")
+    print("[Mission] SERVER-VERIFIED MODIFIER BUILD - REAL STATE REQUIRED BEFORE START")
 
     local MissionObjectives = {
         ["Shiganshina"] = {"Skirmish","Breach","Random"},
@@ -6436,56 +6436,253 @@ if Tabs.Lobby then
     end
 
     -- ═══════════════════════════════════════════════════════════
-    -- Modifiers (محسّن)
+    -- Modifiers - SERVER VERIFIED
+    -- Never trusts InvokeServer success alone.
+    -- The mission may start ONLY after the applied modifiers are visible
+    -- in replicated/server data.
     -- ═══════════════════════════════════════════════════════════
+
+    local MODIFIER_LOOKUP = {}
+    for _, mod in ipairs(ModifiersList) do
+        MODIFIER_LOOKUP[string.lower(mod:gsub("%s+", ""))] = mod
+    end
+
+    local function NormalizeModifierName(value)
+        if type(value) ~= "string" then
+            return nil
+        end
+
+        local key = string.lower(value:gsub("%s+", ""))
+
+        return MODIFIER_LOOKUP[key]
+    end
+
+    local function AddModifierToSet(set, value)
+        local normalized = NormalizeModifierName(value)
+        if normalized then
+            set[normalized] = true
+        end
+    end
+
+    local function ParseModifiersTable(raw)
+        local set = {}
+
+        if type(raw) ~= "table" then
+            return set
+        end
+
+        for k, v in pairs(raw) do
+            if type(k) == "number" then
+                if type(v) == "string" then
+                    AddModifierToSet(set, v)
+                elseif type(v) == "table" then
+                    AddModifierToSet(set, v.Name)
+                    AddModifierToSet(set, v.Modifier)
+                end
+            elseif type(v) == "boolean" then
+                if v then
+                    AddModifierToSet(set, tostring(k))
+                end
+            elseif type(v) == "string" then
+                -- Some game data stores modifier names as string values.
+                AddModifierToSet(set, tostring(k))
+                AddModifierToSet(set, v)
+            elseif type(v) == "table" then
+                if v.Enabled == true or v.Active == true or v.Value == true then
+                    AddModifierToSet(set, tostring(k))
+                    AddModifierToSet(set, v.Name)
+                    AddModifierToSet(set, v.Modifier)
+                end
+            end
+        end
+
+        return set
+    end
+
+    local function MergeModifierSets(into, from)
+        for mod, enabled in pairs(from or {}) do
+            if enabled then
+                into[mod] = true
+            end
+        end
+    end
+
+    local function ReadModifiersFromDataCopy(expectedMap)
+        local ok, data = pcall(function()
+            return GET:InvokeServer("Data", "Copy")
+        end)
+
+        if not ok or type(data) ~= "table" then
+            return nil, "DataCopy unavailable"
+        end
+
+        if type(data.Map) ~= "table" then
+            return nil, "DataCopy Map unavailable"
+        end
+
+        local liveMap = data.Map.Map or data.Map.Name
+
+        if type(liveMap) == "string"
+            and expectedMap
+            and liveMap ~= expectedMap then
+
+            return nil, "DataCopy wrong map: " .. tostring(liveMap)
+        end
+
+        if type(data.Map.Modifiers) ~= "table" then
+            return nil, "DataCopy Modifiers unavailable"
+        end
+
+        return ParseModifiersTable(data.Map.Modifiers), "DataCopy"
+    end
+
+    local function ReadModifiersFromMissionObject(mission)
+        if not mission then
+            return nil, "Mission object unavailable"
+        end
+
+        local set = {}
+        local foundStructure = false
+
+        -- First inspect a dedicated Modifiers container if the game has one.
+        local modifiersFolder = mission:FindFirstChild("Modifiers", true)
+        if modifiersFolder then
+            foundStructure = true
+
+            for _, obj in ipairs(modifiersFolder:GetDescendants()) do
+                AddModifierToSet(set, obj.Name)
+
+                if obj:IsA("StringValue") then
+                    AddModifierToSet(set, obj.Value)
+                elseif obj:IsA("BoolValue") and obj.Value then
+                    AddModifierToSet(set, obj.Name)
+                end
+            end
+
+            for _, obj in ipairs(modifiersFolder:GetChildren()) do
+                AddModifierToSet(set, obj.Name)
+            end
+        end
+
+        -- Fallback: inspect known modifier-shaped values directly under
+        -- the player's current replicated mission.
+        for _, obj in ipairs(mission:GetDescendants()) do
+            local normalizedName = NormalizeModifierName(obj.Name)
+
+            if normalizedName then
+                if obj:IsA("BoolValue") then
+                    foundStructure = true
+                    if obj.Value then
+                        set[normalizedName] = true
+                    end
+                elseif obj:IsA("StringValue") then
+                    foundStructure = true
+                    AddModifierToSet(set, obj.Value)
+                    AddModifierToSet(set, obj.Name)
+                end
+            elseif obj:IsA("StringValue") then
+                local normalizedValue = NormalizeModifierName(obj.Value)
+                if normalizedValue then
+                    foundStructure = true
+                    set[normalizedValue] = true
+                end
+            end
+        end
+
+        if not foundStructure then
+            return nil, "Replicated modifier state unavailable"
+        end
+
+        return set, "MissionObject"
+    end
+
+    local function GetVerifiedModifierSet(expectedMap)
+        local verified = {}
+        local sources = {}
+
+        local fromData, dataSource = ReadModifiersFromDataCopy(expectedMap)
+        if fromData then
+            MergeModifierSets(verified, fromData)
+            table.insert(sources, dataSource)
+        end
+
+        local mission = GetMyMission(0.08)
+        local fromMission, missionSource = ReadModifiersFromMissionObject(mission)
+        if fromMission then
+            MergeModifierSets(verified, fromMission)
+            table.insert(sources, missionSource)
+        end
+
+        if #sources == 0 then
+            return nil, "NO VERIFICATION SOURCE"
+        end
+
+        return verified, table.concat(sources, "+")
+    end
+
+    local function GetMissingModifiers(expected, actual)
+        local missing = {}
+
+        for _, mod in ipairs(expected) do
+            if not actual or actual[mod] ~= true then
+                table.insert(missing, mod)
+            end
+        end
+
+        return missing
+    end
+
+    local function ModifierListText(list)
+        if not list or #list == 0 then
+            return "None"
+        end
+        return table.concat(list, ", ")
+    end
+
+    local function SetToOrderedList(set)
+        local out = {}
+
+        for _, mod in ipairs(ModifiersList) do
+            if set and set[mod] then
+                table.insert(out, mod)
+            end
+        end
+
+        return out
+    end
 
     local function ClearMissionModifiers()
         if not missionRunning then
             return false
         end
 
-        -- One clear request is enough. The old build sent this 3 times and
-        -- inserted almost a full second of unnecessary delay.
         local ok = SafeMissionCall("S_Missions", "ClearModifiers")
-        task.wait(0.06)
+        task.wait(0.08)
         return ok
     end
 
-    local function ApplyModifierFast(mod)
+    local function SendModifier(mod)
         if not missionRunning then
             return false
         end
 
-        -- IMPORTANT:
-        -- InvokeServer often succeeds but returns nil for action-style remotes.
-        -- The old code treated nil as failure and retried up to 8 calls per
-        -- modifier, which is why the modifiers looked extremely slow.
         local callOk = SafeMissionCall("S_Missions", "Modify", mod)
 
         if callOk then
             return true
         end
 
-        -- One compact fallback using the no-space variant.
         local noSpace = tostring(mod):gsub("%s+", "")
 
         if noSpace ~= mod then
             task.wait(0.04)
             callOk = SafeMissionCall("S_Missions", "Modify", noSpace)
-
-            if callOk then
-                return true
-            end
         end
 
-        return false
+        return callOk
     end
 
-    local function ApplyMissionModifiers(mySession)
-        if not missionRunning then
-            return false
-        end
-
+    local function GetSelectedModifiersOrdered()
         local selectedSet = {}
 
         pcall(function()
@@ -6503,172 +6700,242 @@ if Tabs.Lobby then
 
         local ordered = {}
 
-        -- Preserve the game's known modifier order.
         for _, mod in ipairs(ModifiersList) do
             if selectedSet[mod] then
                 table.insert(ordered, mod)
             end
         end
 
-        if #ordered == 0 then
-            Library:Notify("No modifiers selected", 2)
-            return true
-        end
+        return ordered
+    end
 
-        -- Clear once before the first application pass.
-        if not ClearMissionModifiers() then
-            warn("[Mission] ClearModifiers call failed - retrying...")
-            while missionRunning
-                and missionSessionId == mySession
-                and GetMyMission(0.05) do
+    local function VerifyAllModifiers(expected, expectedMap, requireStablePasses)
+        requireStablePasses = requireStablePasses or 1
+        local passes = 0
+        local lastSource = "unknown"
 
-                if ClearMissionModifiers() then
-                    break
-                end
+        while passes < requireStablePasses do
+            local actual, source = GetVerifiedModifierSet(expectedMap)
+            lastSource = source or "unknown"
 
+            if not actual then
+                return false, expected, nil, lastSource
+            end
+
+            local missing = GetMissingModifiers(expected, actual)
+
+            if #missing > 0 then
+                return false, missing, actual, lastSource
+            end
+
+            passes += 1
+
+            if passes < requireStablePasses then
                 task.wait(0.15)
             end
         end
 
-        if not missionRunning
-            or missionSessionId ~= mySession
-            or not GetMyMission(0.08) then
+        local actual = GetVerifiedModifierSet(expectedMap)
+        return true, {}, actual, lastSource
+    end
 
-            return false
+    local function ApplyMissionModifiers(mySession, expectedMap)
+        if not missionRunning then
+            return false, {}
         end
 
-        local pending = {}
+        local ordered = GetSelectedModifiersOrdered()
+
+        if #ordered == 0 then
+            Library:Notify("No modifiers selected", 2)
+            return true, ordered
+        end
+
+        -- Start from a clean modifier state.
+        ClearMissionModifiers()
+        task.wait(0.12)
+
+        -- Initial fast send.
         for _, mod in ipairs(ordered) do
-            pending[mod] = true
+            if not missionRunning or missionSessionId ~= mySession then
+                return false, ordered
+            end
+
+            SendModifier(mod)
+            task.wait(0.045)
         end
 
-        local appliedCount = 0
+        task.wait(0.20)
+
         local round = 0
 
-        -- STRICT GATE:
-        -- Keep retrying ONLY the modifiers that have not succeeded yet.
-        -- There is intentionally no "start anyway" fallback.
         while missionRunning
             and missionSessionId == mySession
             and GetMyMission(0.08) do
 
             round += 1
-            local progressThisRound = 0
 
-            for _, mod in ipairs(ordered) do
-                if not missionRunning
-                    or missionSessionId ~= mySession then
-                    return false
-                end
+            local actual, source = GetVerifiedModifierSet(expectedMap)
 
-                if pending[mod] then
-                    local ok = ApplyModifierFast(mod)
+            if actual then
+                local actualList = SetToOrderedList(actual)
+                local missing = GetMissingModifiers(ordered, actual)
 
-                    if ok then
-                        pending[mod] = nil
-                        appliedCount += 1
-                        progressThisRound += 1
-
-                        print(
-                            string.format(
-                                "[Mission] ✓ Applied %d/%d: %s",
-                                appliedCount,
-                                #ordered,
-                                mod
-                            )
-                        )
-                    else
-                        warn(
-                            string.format(
-                                "[Mission] ✗ Modifier still pending: %s (round %d)",
-                                mod,
-                                round
-                            )
-                        )
-                    end
-
-                    task.wait(0.05)
-                end
-            end
-
-            local remaining = {}
-            for _, mod in ipairs(ordered) do
-                if pending[mod] then
-                    table.insert(remaining, mod)
-                end
-            end
-
-            if #remaining == 0 then
                 print(
                     string.format(
-                        "[Mission] ALL MODIFIERS APPLIED: %d/%d",
-                        #ordered,
+                        "[Mission] SERVER VERIFY round %d | source=%s | actual=%d/%d",
+                        round,
+                        tostring(source),
+                        #actualList,
                         #ordered
                     )
                 )
 
+                if #missing == 0 then
+                    -- Require TWO consecutive server-observed full passes.
+                    task.wait(0.15)
+
+                    local secondActual, secondSource =
+                        GetVerifiedModifierSet(expectedMap)
+
+                    local secondMissing =
+                        GetMissingModifiers(ordered, secondActual)
+
+                    if secondActual and #secondMissing == 0 then
+                        print(
+                            "[Mission] SERVER VERIFIED ALL MODIFIERS:",
+                            ModifierListText(ordered),
+                            "| source=",
+                            tostring(secondSource)
+                        )
+
+                        Library:Notify(
+                            string.format(
+                                "Server verified modifiers: %d/%d",
+                                #ordered,
+                                #ordered
+                            ),
+                            2
+                        )
+
+                        return true, ordered
+                    end
+
+                    missing = secondMissing
+                end
+
+                print(
+                    "[Mission] START BLOCKED - SERVER MISSING:",
+                    ModifierListText(missing)
+                )
+
                 Library:Notify(
-                    string.format(
-                        "All modifiers applied: %d/%d",
-                        #ordered,
-                        #ordered
-                    ),
+                    "Server missing: " .. ModifierListText(missing),
                     2
                 )
 
-                return true
+                -- Retry ONLY what the SERVER says is missing.
+                for _, mod in ipairs(missing) do
+                    if not missionRunning
+                        or missionSessionId ~= mySession then
+
+                        return false, ordered
+                    end
+
+                    SendModifier(mod)
+                    task.wait(0.055)
+                end
+            else
+                -- No trustworthy state = NEVER start.
+                print(
+                    "[Mission] START BLOCKED - cannot verify modifiers from server:",
+                    tostring(source)
+                )
+
+                Library:Notify(
+                    "Waiting for server modifier verification...",
+                    2
+                )
+
+                -- Re-send the full expected set periodically while waiting
+                -- for a real verification source to appear.
+                if round % 3 == 0 then
+                    for _, mod in ipairs(ordered) do
+                        SendModifier(mod)
+                        task.wait(0.055)
+                    end
+                end
             end
 
-            -- Never start while anything is still pending.
-            Library:Notify(
-                string.format(
-                    "Waiting for modifiers %d/%d | pending: %s",
-                    appliedCount,
-                    #ordered,
-                    table.concat(remaining, ", ")
-                ),
-                2
-            )
-
-            print(
-                "[Mission] START BLOCKED - waiting for:",
-                table.concat(remaining, ", ")
-            )
-
-            -- Fast retry while progress is being made.
-            -- If a modifier is stubborn, slow down slightly to avoid remote spam.
-            if progressThisRound > 0 then
-                task.wait(0.10)
-            elseif round % 10 == 0 then
+            -- Slight backoff prevents hammering the server forever.
+            if round % 10 == 0 then
                 task.wait(0.50)
             else
-                task.wait(0.15)
+                task.wait(0.16)
             end
         end
 
-        warn("[Mission] Modifier gate cancelled because mission/session ended")
-        return false
+        return false, ordered
     end
 
-    local function StartMission()
-        if not missionRunning then return false end
+    local function StartMission(expectedModifiers, expectedMap)
+        if not missionRunning then
+            return false
+        end
 
         for attempt = 1, 4 do
-            if not missionRunning then return false end
+            if not missionRunning then
+                return false
+            end
 
-            local success = SafeMissionCall("S_Missions", "Start")
+            -- FINAL SERVER-SIDE GATE immediately before Start.
+            local verified, missing, actual, source =
+                VerifyAllModifiers(
+                    expectedModifiers or {},
+                    expectedMap,
+                    2
+                )
+
+            if not verified then
+                warn(
+                    "[Mission] START HARD-BLOCKED before attempt",
+                    attempt,
+                    "| source=",
+                    tostring(source),
+                    "| missing=",
+                    ModifierListText(missing)
+                )
+
+                return false, "MODIFIERS_NOT_VERIFIED"
+            end
+
+            print(
+                "[Mission] FINAL SERVER CHECK PASS - sending Start",
+                "| map=" .. tostring(expectedMap),
+                "| modifiers=" .. tostring(#(expectedModifiers or {}))
+            )
+
+            SafeMissionCall("S_Missions", "Start")
             task.wait(0.3)
 
             if not GetMyMission(0.8) then
-                print("[Mission] Started successfully on attempt", attempt)
+                print(
+                    "[Mission] Started successfully on attempt",
+                    attempt
+                )
                 return true
             end
 
             if attempt < 4 then
-                warn("[Mission] Start attempt", attempt, "— mission still in lobby, retrying...")
+                warn(
+                    "[Mission] Start attempt",
+                    attempt,
+                    "— mission still in lobby, retrying..."
+                )
                 task.wait(0.25)
             end
         end
+
         return false
     end
 
@@ -6822,13 +7089,16 @@ if Tabs.Lobby then
 
         Library:Notify("Applying modifiers...", 2)
 
-        local modifiersReady = ApplyMissionModifiers(mySession)
+        local modifiersReady, expectedModifiers =
+            ApplyMissionModifiers(mySession, currentMission)
 
         -- HARD BLOCK:
-        -- StartMission is never called unless every selected modifier
-        -- returned success.
+        -- "ready" now means the SERVER/replicated state showed every
+        -- selected modifier twice in a row.
         if not modifiersReady then
-            warn("[Mission] Start cancelled - modifiers are not all applied")
+            warn(
+                "[Mission] Start cancelled - server did not verify all modifiers"
+            )
             LeaveMission(true)
             return
         end
@@ -6858,7 +7128,14 @@ if Tabs.Lobby then
             2
         )
 
-        local started = StartMission()
+        local started, startReason =
+            StartMission(expectedModifiers, currentMission)
+
+        if not started and startReason == "MODIFIERS_NOT_VERIFIED" then
+            warn(
+                "[Mission] Final modifier state changed - rebuilding mission setup"
+            )
+        end
 
         if started then
             Library:Notify("Mission started!", 3)
