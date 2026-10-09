@@ -90,8 +90,8 @@ local CONFIG = {
         AutoTeleport = false,        -- Lobby automatic teleport feature.
 
         Mission = {
-            Name = "Chapel",         -- Mission/map to start automatically.
-            Objective = "Skirmish",  -- Mission objective/mode.
+            Name = "Shiganshina",         -- Mission/map to start automatically.
+            Objective = "Breach",  -- Mission objective/mode.
             Difficulty = "Hardest",  -- Mission difficulty.
 
             Modifiers = {            -- Mission modifiers to select automatically.
@@ -256,8 +256,8 @@ local CONFIG = {
 
         SpearHitDistanceEnabled = true, -- Enables the custom Thunder Spear hit-distance setting below.
 
-        SkipCutScene = false,        -- Enables the supported automatic cutscene skip feature.
-        SkipForce = false,           -- Enables the force-skip helper where supported.
+        SkipCutScene = true,        -- Enables the supported automatic cutscene skip feature.
+        SkipForce = true,           -- Enables the force-skip helper where supported.
 
         PlayerStats = false,         -- Enables the player-stats display/worker from the original script.
 
