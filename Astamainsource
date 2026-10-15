@@ -12,345 +12,22 @@
 -- ============================================================
 
 -- ============================================================
--- TOWNSHIP HEADLESS CONFIG
--- No Linoria menu is created.
---
--- HOW TO USE:
---   * Edit MainMenu, Lobby, or Mission below.
---   * The script automatically loads the correct section for the current place.
---   * Advanced exact-ID overrides are available at the bottom if needed.
---
--- Multi-select settings use a simple list:
---   {"Memory Scroll", "Emperor's Key"}
--- The headless layer converts it to the format the original script expects.
+-- ============================================================
+-- ASTA v1
+-- CONFIG COMES FROM getgenv().TownShipConfig
+-- Upload this file to GitHub as Asta_v1.lua
 -- ============================================================
 
-local CONFIG = {
-    -- ========================================================
-    -- GENERAL
-    -- true = enabled / false = disabled
-    -- Numbers are usually seconds, amounts, speed, height, etc.
-    -- ========================================================
-    System = {
-        PrintNotifications = true,   -- true = print old UI notifications in the console.
-        PrintConfigLoads = false,    -- true = print every config value as the script loads it.
-    },
+-- NOTE: Internal TownShipConfig / TownShip folder identifiers are kept
+-- for backward compatibility with existing saved files and teleport logic.
+local CONFIG = getgenv().TownShipConfig
 
-    -- ========================================================
-    -- MAIN MENU
-    -- Used only while you are on the game's main menu.
-    -- ========================================================
-    MainMenu = {
-        AutoSelect = true,           -- Automatically selects the configured slot when the slot screen appears.
-        AutoDialog = false,           -- Automatically clicks/continues supported dialog prompts.
-        AutoJoin = true,             -- Automatically joins the destination selected in JoinDestination.
+if type(CONFIG) ~= "table" then
+    warn("[Asta v1] Config not found.")
+    warn("[Asta v1] Run Asta_v1_Loader.lua instead of Asta_v1.lua directly.")
+    return
+end
 
-        AutoRedeem = false,          -- Automatically redeems stored codes.
-        AutoNotNow = true,          -- Automatically clicks "Not Now" when that supported popup appears.
-        StopAtSpinLimit = false,     -- Stops family spinning when the amount in StopAtSpins is reached.
-        AutoNotify = false,          -- Enables the family/spin notification system.
-        AutoTeleport = false,        -- Automatically teleports after AutoTeleportTime.
-        AutoSpin = false,            -- Automatically spins for the families listed in SpinFamilies.
-        PopupRealTime = false,       -- Enables the real-time family/status popup logic. No visible Linoria menu is created.
-
-        HideUI = true,               -- Compatibility setting from the old UI version; headless mode has no menu to show.
-        MobileUI = true,             -- Enables old mobile-UI compatibility behavior where supported.
-
-        Slot = "B",                  -- Character slot to automatically select. Example: "A".
-        SelectDelay = 1,             -- Seconds to wait between automatic slot-selection actions.
-
-        JoinDestination = "Lobby",   -- Destination used by AutoJoin. Example: "Lobby".
-        JoinDelay = 0,               -- Seconds to wait before AutoJoin performs its action.
-
-        TeleportTime = 0,            -- Delay in seconds for AutoTeleport. 0 = no extra delay.
-
-        StopAtSpins = "0",           -- Spin limit used by StopAtSpinLimit. Kept as text for compatibility.
-        SpinFamilies = {},           -- Families AutoSpin should target. Example: {"Yeager", "Ackerman"}.
-        SpinDelay = 0.01,            -- Delay in seconds between family-spin attempts.
-
-        WebhookURL = "",             -- Main-menu/family webhook URL. Leave "" to disable sending to a URL.
-        WebhookPing = "None",        -- Ping mode for the main-menu webhook. Current value: "None".
-
-        NewCode = "",                -- A code to add/store when using the code-storage action.
-        StoredCodes = {},            -- Codes selected/stored for automatic redemption.
-
-        PopupScale = 100,            -- Scale percentage for the old popup/status display. 100 = normal size.
-    },
-
-    -- ========================================================
-    -- LOBBY / TRADE LOBBY
-    -- Used in Town Central and the trade lobby.
-    -- ========================================================
-    Lobby = {
-        HideUI = true,               -- Compatibility setting; there is no Linoria menu in this headless build.
-        MobileUI = false,            -- Old mobile-UI compatibility behavior for the lobby.
-
-        AutoStartMission = true,     -- Automatically starts the configured mission.
-        AutoWaves = false,           -- Automatically handles/starts wave-related actions where supported.
-        AutoTeleport = false,        -- Lobby automatic teleport feature.
-
-        Mission = {
-            Name = "Shiganshina",         -- Mission/map to start automatically.
-            Objective = "Skirmish",  -- Mission objective/mode.
-            Difficulty = "Hardest",  -- Mission difficulty.
-
-            Modifiers = {            -- Mission modifiers to select automatically.
-                "Nightmare",         -- Enables the Nightmare modifier.
-                "No Skills",         -- Enables the No Skills modifier.
-                "Injury Prone",      -- Enables the Injury Prone modifier.
-                "Oddball",           -- Enables the Oddball modifier.
-                "No Perks",          -- Enables the No Perks modifier.
-                "Fog",               -- Enables the Fog modifier.
-                "Glass Cannon",      -- Enables the Glass Cannon modifier.
-                "Chronic Injuries",  -- Enables the Chronic Injuries modifier.
-                "No Memories",       -- Enables the No Memories modifier.
-                "Time Trial",        -- Enables the Time Trial modifier.
-            },
-
-            Delay = 5,               -- Seconds the mission starter waits between/start around mission actions.
-            WavesDelay = 0,          -- Extra delay in seconds for wave actions.
-        },
-
-        Boosts = {
-            Enabled = true,          -- Master toggle for the automatic boost system.
-            Gold = true,             -- Enables automatic Gold boost handling.
-            Luck = false,            -- Enables automatic Luck boost handling.
-            XP = false,              -- Enables automatic XP boost handling.
-            Delay = 1,               -- Seconds between automatic boost checks.
-
-            Purchase = false,        -- Enables the separate boost-purchase feature.
-            AutoUse = false,         -- Automatically uses boosts selected in Selected.
-            Selected = {},           -- Boosts for the separate purchase/use system. Example: {"2x Gold Boost [2h]"}.
-            Amount = 1,              -- Quantity used by the separate boost-purchase system.
-            UseDelay = 0,            -- Delay in seconds between separate boost-use actions.
-        },
-
-        Cosmetics = {
-            AutoSell = true,         -- Automatically sells all obtainable mission-drop cosmetics listed in Auto Sell Cosmetics.
-            Repeat = 3,              -- Number of sell attempts made for each cosmetic per cycle.
-            Delay = 0.25,            -- Seconds between cosmetic sell requests.
-        },
-
-        Perks = {
-            AutoDelete = true,       -- Automatically deletes perks matching the enabled rarities below.
-
-            Common = true,           -- Delete Common perks.
-            Rare = true,             -- Delete Rare perks.
-            Epic = true,             -- Delete Epic perks.
-            Legendary = true,        -- Delete Legendary perks.
-            Secret = false,          -- Delete Secret perks. false keeps them.
-
-            Delay = 0.05,            -- Seconds between perk-delete batches.
-            Interval = 5,            -- Seconds between automatic perk-delete scans.
-        },
-
-        Upgrades = {
-            Blade = true,            -- Automatically upgrades Blade equipment.
-            Spear = false,           -- Automatically upgrades Thunder Spear equipment.
-
-            BladeDelay = 0,          -- Extra delay between Blade upgrade actions.
-            SpearDelay = 0,          -- Extra delay between Spear upgrade actions.
-        },
-
-        Skills = {
-            Unlock = true,           -- Automatically unlocks skills according to the configured side choices.
-            AutoEquip = true,        -- Automatically equips the five skill IDs below.
-
-            SupportSide = "Right",   -- Support skill-tree side. Example: "Left", "Right", or "None".
-            OffenseSide = "Left",    -- Offense skill-tree side.
-            DefenseSide = "None",    -- Defense skill-tree side. "None" disables that side.
-
-            UnlockDelay = 0.08,      -- Seconds between automatic skill-unlock actions.
-            EquipDelay = 1,          -- Seconds between automatic skill-equip actions.
-
-            Slots = {
-                "76",                -- Skill ID for slot 1.
-                "95",                -- Skill ID for slot 2.
-                "26",                -- Skill ID for slot 3.
-                "7",                 -- Skill ID for slot 4.
-                "3",                 -- Skill ID for slot 5.
-            },
-        },
-
-        ShadowChecker = {
-            Enabled = true,          -- Enables the account/shadow-checker logic.
-            WebhookURL = "https://discord.com/api/webhooks/1398658944578355323/IMZAxHul-JnmivPapO2Xd1R_Ddxwwq49O91dSQo-3fLerY6AqM7D0h6cOSQdeaiUR2cP",         -- Webhook used by the shadow checker. Leave "" if you do not want one.
-        },
-
-        Prestige = {
-            Enabled = true,          -- Enables automatic prestige.
-            ForceGold = true,        -- Forces/uses the custom Gold requirement values below.
-
-            GoldRequirements = {
-                [0] = 200,           -- Gold requirement used for Prestige 0 -> 1.
-                [1] = 400,           -- Gold requirement used for Prestige 1 -> 2.
-                [2] = 600,           -- Gold requirement used for Prestige 2 -> 3.
-                [3] = 800,           -- Gold requirement used for Prestige 3 -> 4.
-                [4] = 1000,          -- Gold requirement used for Prestige 4 -> 5.
-            },
-
-            Boost = "Gold Boost",    -- Boost name/value passed to the prestige system.
-            SendAs = "Name",         -- Format used when sending the prestige boost/talent value.
-            Cooldown = 8,            -- Seconds between prestige attempts.
-        },
-
-        Claims = {
-            Quests = true,           -- Automatically claims available quest rewards.
-            Achievements = true,     -- Automatically claims available achievement rewards.
-            Delay = 0,               -- Extra delay between claim actions.
-        },
-
-        Trade = {
-            Receiver = {             -- Account 1 / Receiver usernames.
-                "Xz_CrazejBMoonOBEcho", -- This username is treated as a receiver account.
-            },
-
-            Sender = {               -- Account 2 / Sender usernames.
-                "GoldeeenlionBlox",  -- This username is treated as a sender account.
-            },
-
-            ReceiverSend = true,     -- Enables repeated trade invites/actions for Receiver-list accounts.
-            ReceiverAccept = true,   -- Enables automatic trade acceptance for Receiver-list accounts.
-
-            SenderSend = true,       -- Enables repeated trade invites/actions for Sender-list accounts.
-            SenderAccept = true,     -- Enables automatic trade acceptance for Sender-list accounts.
-
-            CurrentPlayersSend = false,   -- Enables Send Trade for the Current Players selection.
-            CurrentPlayersAccept = false, -- Enables Auto Accept for the Current Players selection.
-
-            ApplyHistory = true,     -- Applies the trading history option below.
-            History = "Off",         -- Trading history setting sent to the game. "On" or "Off".
-
-            AutoTrade = false,       -- Enables the manual Auto Trade item-giving worker.
-            AcceptTrade = true,      -- Automatically readies/accepts the active trade.
-
-            Items = {                -- Items the sender should place into the trade.
-                "Memory Scroll",     -- Trade Memory Scrolls.
-            },
-
-            AmountPerItem = 100,     -- Target amount of each selected item to place in the trade.
-
-            AutoDisable = false,     -- Automatically stops trade logic when the configured threshold is reached.
-            AutoDisableThreshold = 0,-- Memory Scroll threshold used by AutoDisable.
-
-            ReceiverInput = "",      -- Text used when manually adding a Receiver username to the saved list.
-            SenderInput = "",        -- Text used when manually adding a Sender username to the saved list.
-        },
-    },
-
-    -- ========================================================
-    -- IN MISSION
-    -- Used after entering an actual mission.
-    -- ========================================================
-    Mission = {
-        HideUI = true,               -- Compatibility setting; headless mode has no Linoria menu.
-        MobileUI = false,             -- Disables old mobile-UI compatibility behavior in missions.
-
-        AutoFarm = true,             -- Master Blade auto-farm toggle.
-        AutoReload = true,           -- Automatically refills/reloads Blade equipment.
-        AutoRetry = true,            -- Automatically presses Retry after mission rewards appear.
-        AutoReturn = true,           -- Returns to Town Central after TargetMissions missions.
-
-        AutoThunderSpear = false,    -- Enables the Thunder Spear auto-farm system.
-        AutoSpearQuest = false,      -- Enables the automatic Thunder Spear quest helper.
-
-        SpearHitDistanceEnabled = true, -- Enables the custom Thunder Spear hit-distance setting below.
-
-        SkipCutScene = false,        -- Enables the supported automatic cutscene skip feature.
-        SkipForce = false,           -- Enables the force-skip helper where supported.
-
-        PlayerStats = false,         -- Enables the player-stats display/worker from the original script.
-
-        Farm = {
-            Mode = "Tween",          -- Blade movement mode: "Tween", "Teleport", or "No Movement".
-            HoverSpeed = 1000,       -- Tween/movement speed used while moving above Titans.
-            HoverHeight = 400,       -- Height in studs to stay above the current Titan.
-
-            SafetyTime = 0,          -- Seconds to wait in safety/wave state before normal farming starts.
-            StopAtTitansLeft = 0,    -- Stop/pause threshold based on Titans remaining. 0 disables the threshold.
-            KillHits = 9,            -- Number of Titan targets/hits used by the fast Titan worker.
-        },
-
-        ThunderSpear = {
-            Mode = "Tween",          -- Thunder Spear movement mode.
-            HoverSpeed = 120,        -- Thunder Spear movement/tween speed.
-            HoverHeight = 120,       -- Height in studs used by Thunder Spear farming.
-            HitDistance = 80,        -- Maximum configured Thunder Spear hit distance.
-        },
-
-        Performance = {
-            UIScale = 100,           -- Old UI scale percentage. Kept for compatibility even though this build is headless.
-            FPSLimit = 15,           -- FPS cap from the config you sent.
-
-            RenderModes = {          -- Performance/render optimizations to enable.
-                "Delete Map",        -- Removes supported map objects to reduce rendering load.
-                "Low Graphic",       -- Applies the original low-graphics optimization.
-                "Disable 3D Render", -- Disables 3D rendering where supported for maximum performance.
-            },
-        },
-
-        Return = {
-            TargetMissions = 20,     -- Number of completed missions before AutoReturn goes back to the lobby.
-        },
-
-        FailSafe = {
-            Enabled = true,          -- Enables the combined fail-safe action system.
-            Delay = 46,              -- Seconds before the configured fail-safe action is performed.
-
-            Actions = {              -- Actions performed by the fail-safe when enabled.
-                "Teleport to Lobby", -- Teleports back to Town Central/lobby.
-            },
-        },
-
-        Webhook = {
-            Enabled = true,          -- Sends mission/result data through the configured webhook system.
-            URL = "https://discord.com/api/webhooks/1477622665928769536/JO474IX4qv00G9d3WL0AyQdHScSAXXO8M2pjrajZHYFmRLeOI3nFMq2axvWz-D0NFixy", -- Mission webhook URL.
-            Mode = "All Data",       -- Amount/type of information included in the webhook message.
-            PingMode = "None",       -- Ping behavior for webhook messages.
-
-            Filters = {              -- Data categories included in the webhook.
-                "Progression",       -- Include progression data.
-                "Currency",          -- Include currency data.
-                "Cosmetics",         -- Include cosmetic data.
-                "Loadout",           -- Include loadout data.
-                "Inventory",         -- Include inventory data.
-            },
-        },
-
-        Description = {
-            Enabled = false,         -- Automatic description/status generation stays disabled.
-            Type = "Horst",          -- Description format/type used by the original feature.
-
-            Stats = {                -- Stats selected in your config.
-                "Prestige",
-                "Shards",
-                "Slot",
-                "Spins",
-                "Level",
-                "Gems",
-                "Gold",
-            },
-
-            Items = {},              -- No description items selected.
-            Cosmetics = {},          -- No description cosmetics selected.
-        },
-    },
-
-    -- ========================================================
-    -- ADVANCED OVERRIDES
-    -- Normally leave these empty.
-    -- These let you override an original control ID directly without
-    -- changing the simple sections above.
-    -- Example:
-    -- Toggles = {AutoFarmBlade = false}
-    -- ========================================================
-    Advanced = {
-        Toggles = {},                -- Exact original toggle IDs and true/false values.
-        Values = {},                 -- Exact original slider/dropdown IDs and their values.
-        Inputs = {},                 -- Exact original input IDs and their text values.
-        Buttons = {},                -- Exact original button names; true runs that action once.
-    },
-}
 
 
 -- ============================================================
@@ -1164,7 +841,7 @@ local Library = {
 }
 
 function Library:CreateWindow(_)
-    local window = newNode("TownShip Headless")
+    local window = newNode("Asta v1")
 
     -- Fake holder only for compatibility with old code.
     -- Visible=false makes trade code treat the old menu as hidden.
@@ -1178,7 +855,7 @@ end
 
 function Library:Notify(message, _duration)
     if CONFIG.System.PrintNotifications then
-        print("[TownShip]", tostring(message))
+        print("[Asta v1]", tostring(message))
     end
 end
 
@@ -1188,7 +865,7 @@ end
 
 function Library:Unload()
     getgenv().TownShipHeadlessUnloaded = true
-    print("[TownShip] Headless unload flag set")
+    print("[Asta v1] Headless unload flag set")
 end
 
 local ThemeManager = {
@@ -1555,7 +1232,7 @@ do
     end
 end
 
-local Window = Library:CreateWindow({Title="#Town Ship", Center=true, AutoShow=true})
+local Window = Library:CreateWindow({Title="Asta v1", Center=true, AutoShow=true})
 
 local function isUIHiddenGlobal()
     local ok, hidden = pcall(function()
@@ -9547,17 +9224,66 @@ if IsIngameLobby() and Tabs.AutoFarm then
                         if v["Delete Map"] then
                 local climbable = workspace:FindFirstChild("Climbable")
                 local unclimbable = workspace:FindFirstChild("Unclimbable")
+
+                local function containsRefill(obj)
+                    if not obj then return false end
+                    if obj.Name == "Refill" then return true end
+
+                    local ok, found = pcall(function()
+                        return obj:FindFirstChild("Refill", true)
+                    end)
+
+                    return ok and found ~= nil
+                end
+
+                local function pruneBranchKeepRefills(root)
+                    if not root or root.Name == "Refill" then
+                        return
+                    end
+
+                    for _, child in ipairs(root:GetChildren()) do
+                        if child.Name == "Refill" then
+                            -- Keep the actual refill station intact.
+                        elseif containsRefill(child) then
+                            -- Keep only the ancestor chain leading to a refill.
+                            pruneBranchKeepRefills(child)
+                        else
+                            pcall(function()
+                                child:Destroy()
+                            end)
+                        end
+                    end
+                end
+
                 if climbable or unclimbable then
                     if climbable then
                         for _, child in ipairs(climbable:GetChildren()) do
-                            pcall(function() child:Destroy() end)
+                            if containsRefill(child) then
+                                pruneBranchKeepRefills(child)
+                            else
+                                pcall(function()
+                                    child:Destroy()
+                                end)
+                            end
                         end
                     end
+
                     if unclimbable then
-                        local preserve = {Reloads = true, Objective = true, Cutscene = true}
+                        local preserve = {
+                            Reloads = true,
+                            Objective = true,
+                            Cutscene = true,
+                        }
+
                         for _, child in ipairs(unclimbable:GetChildren()) do
-                            if not preserve[child.Name] then
-                                pcall(function() child:Destroy() end)
+                            if preserve[child.Name] then
+                                -- Keep original mission-required folders.
+                            elseif containsRefill(child) then
+                                pruneBranchKeepRefills(child)
+                            else
+                                pcall(function()
+                                    child:Destroy()
+                                end)
                             end
                         end
                     end
@@ -9833,6 +9559,13 @@ if Tabs.AutoFarm then
             if syncingWeapon then return end
             G.FarmMode = val
 
+            -- Rebuild the No Movement hover anchor whenever the mode changes.
+            -- This prevents an old position from a previous mission/character
+            -- from being reused.
+            G.NoMovementHoverPosition = nil
+            G.NoMovementHoverCharacter = nil
+            G.NoMovementHoverRotation = nil
+
             if val == "No Movement" then
                 CleanupSmoothMovement()
 
@@ -9927,6 +9660,11 @@ if Tabs.AutoFarm then
                 G.Farm = false
                 PendingFarmStart = false
                 CurrentEntry = nil
+
+                G.NoMovementHoverPosition = nil
+                G.NoMovementHoverCharacter = nil
+                G.NoMovementHoverRotation = nil
+
                 if FarmConn then
                     FarmConn:Disconnect()
                     FarmConn = nil
@@ -11040,6 +10778,75 @@ local CurrentEntry = nil
 local isDead = false
 local IdleHoverY = 80
 
+-- ============================================================
+-- NO MOVEMENT = FIXED HOVER
+-- Moves straight up once, then locks the exact same X/Z position.
+-- It never follows Titans horizontally.
+-- HoverHeight controls how far above the starting position it hovers.
+-- ============================================================
+local function HoldNoMovementHover(hrp)
+    if not hrp then return end
+
+    local G = getgenv()
+    local char = hrp.Parent
+
+    NoclipOn()
+    CleanupSmoothMovement()
+
+    local needsNewAnchor =
+        G.NoMovementHoverCharacter ~= char
+        or typeof(G.NoMovementHoverPosition) ~= "Vector3"
+
+    if needsNewAnchor then
+        local lift = tonumber(G.HoverHeight) or 120
+
+        -- "No Movement" should always actually be airborne.
+        if lift <= 0 then
+            lift = 120
+        end
+
+        local startCF = hrp.CFrame
+        local startPos = hrp.Position
+
+        G.NoMovementHoverPosition = Vector3.new(
+            startPos.X,
+            startPos.Y + lift,
+            startPos.Z
+        )
+
+        -- Preserve the direction the character was facing when the anchor
+        -- was created, while keeping position completely fixed afterwards.
+        G.NoMovementHoverRotation = startCF - startCF.Position
+        G.NoMovementHoverCharacter = char
+
+        print(
+            string.format(
+                "[NoMovement] Fixed hover locked at X %.1f | Y %.1f | Z %.1f (+%.1f)",
+                G.NoMovementHoverPosition.X,
+                G.NoMovementHoverPosition.Y,
+                G.NoMovementHoverPosition.Z,
+                lift
+            )
+        )
+    end
+
+    pcall(function()
+        local rotation = G.NoMovementHoverRotation
+
+        if typeof(rotation) == "CFrame" then
+            hrp.CFrame =
+                CFrame.new(G.NoMovementHoverPosition)
+                * rotation
+        else
+            hrp.CFrame =
+                CFrame.new(G.NoMovementHoverPosition)
+        end
+
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end)
+end
+
 local function IsRewardsUIVisible()
     -- Rewards.Visible can stay true even while the mission is running.
     -- Treat the mission as finished only when the Rewards UI is ACTUALLY
@@ -11372,14 +11179,18 @@ local function FarmUpdate()
         if isDead then return end
         
         if NeedReload() then
-            if G.FarmMode ~= "No Movement" then
-                local char = Player.Character
-                if char then
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    if hrp then HoverInPlace(hrp) end
+            local char = Player.Character
+
+            if char then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+
+                if hrp then
+                    if G.FarmMode == "No Movement" then
+                        HoldNoMovementHover(hrp)
+                    else
+                        HoverInPlace(hrp)
+                    end
                 end
-            else
-                CleanupSmoothMovement()
             end
 
             return
@@ -11398,6 +11209,18 @@ local function FarmUpdate()
             -- Keeping AutoFarmBlade + G.Farm enabled lets it automatically
             -- resume the instant Rewards disappears in the next mission.
             CurrentEntry = nil
+
+            if G.FarmMode == "No Movement" then
+                local rewardChar = Player.Character
+                local rewardHrp =
+                    rewardChar
+                    and rewardChar:FindFirstChild("HumanoidRootPart")
+
+                if rewardHrp then
+                    HoldNoMovementHover(rewardHrp)
+                end
+            end
+
             return
         end
 
@@ -11411,16 +11234,12 @@ local function FarmUpdate()
         end
 
         if G.FarmMode == "No Movement" then
-            CleanupSmoothMovement()
+            -- Fly vertically above the position where this character started
+            -- No Movement, then stay locked to that exact X/Z forever.
+            HoldNoMovementHover(hrp)
 
-            pcall(function()
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
-            end)
-
-            -- Keep titan state refreshed for the rest of the UI/script,
-            -- but do not move and do not send the original Blade attack.
-            -- The exact Standalone9 worker appended at the end handles damage.
+            -- Keep Titan state refreshed for the rest of the script.
+            -- No Movement itself never follows any Titan.
             ScanTitans()
             return
         end
