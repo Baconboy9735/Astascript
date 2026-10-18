@@ -1,4 +1,361 @@
 -- ============================================================
+-- ASTA v1 LOADER
+-- EDIT YOUR SETTINGS HERE.
+-- The loadstring stays at the very bottom.
+-- ============================================================
+
+getgenv().TownShipConfig = {
+    -- ========================================================
+    -- GENERAL
+    -- true = enabled / false = disabled
+    -- Numbers are usually seconds, amounts, speed, height, etc.
+    -- ========================================================
+    System = {
+        ConsoleMessages = false,     -- Master console switch. false = suppress all Asta print/warn messages.
+        PrintNotifications = false,  -- true = print old UI notifications (only when ConsoleMessages is true).
+        PrintConfigLoads = false,    -- true = print every config value as it loads (only when ConsoleMessages is true).
+    },
+
+    -- ========================================================
+    -- MAIN MENU
+    -- Used only while you are on the game's main menu.
+    -- ========================================================
+    MainMenu = {
+        AutoSelect = true,           -- Automatically selects the configured slot when the slot screen appears.
+        AutoDialog = false,           -- Automatically clicks/continues supported dialog prompts.
+        AutoJoin = true,             -- Automatically joins the destination selected in JoinDestination.
+
+        AutoRedeem = false,          -- Automatically redeems stored codes.
+        AutoNotNow = true,          -- Automatically clicks "Not Now" when that supported popup appears.
+        StopAtSpinLimit = false,     -- Stops family spinning when the amount in StopAtSpins is reached.
+        AutoNotify = false,          -- Enables the family/spin notification system.
+        AutoTeleport = false,        -- Automatically teleports after AutoTeleportTime.
+        AutoSpin = false,            -- Automatically spins for the families listed in SpinFamilies.
+        PopupRealTime = false,       -- Enables the real-time family/status popup logic. No visible Linoria menu is created.
+
+        HideUI = true,               -- Compatibility setting from the old UI version; headless mode has no menu to show.
+        MobileUI = true,             -- Enables old mobile-UI compatibility behavior where supported.
+
+        Slot = "A",                  -- Character slot to automatically select. Example: "A".
+        SelectDelay = 1,             -- Seconds to wait between automatic slot-selection actions.
+
+        JoinDestination = "Lobby",   -- Destination used by AutoJoin. Example: "Lobby".
+        JoinDelay = 0,               -- Seconds to wait before AutoJoin performs its action.
+
+        TeleportTime = 0,            -- Delay in seconds for AutoTeleport. 0 = no extra delay.
+
+        StopAtSpins = "0",           -- Spin limit used by StopAtSpinLimit. Kept as text for compatibility.
+        SpinFamilies = {},           -- Families AutoSpin should target. Example: {"Yeager", "Ackerman"}.
+        SpinDelay = 0.01,            -- Delay in seconds between family-spin attempts.
+
+        WebhookURL = "",             -- Main-menu/family webhook URL. Leave "" to disable sending to a URL.
+        WebhookPing = "None",        -- Ping mode for the main-menu webhook. Current value: "None".
+
+        NewCode = "",                -- A code to add/store when using the code-storage action.
+        StoredCodes = {},            -- Codes selected/stored for automatic redemption.
+
+        PopupScale = 100,            -- Scale percentage for the old popup/status display. 100 = normal size.
+    },
+
+    -- ========================================================
+    -- LOBBY / TRADE LOBBY
+    -- Used in Town Central and the trade lobby.
+    -- ========================================================
+    Lobby = {
+        HideUI = true,               -- Compatibility setting; there is no Linoria menu in this headless build.
+        MobileUI = false,            -- Old mobile-UI compatibility behavior for the lobby.
+
+        AutoStartMission = true,     -- Automatically starts the configured mission.
+        AutoWaves = false,           -- Automatically handles/starts wave-related actions where supported.
+        AutoTeleport = false,        -- Lobby automatic teleport feature.
+
+        Mission = {
+            Name = "Shiganshina",         -- Mission/map to start automatically.
+            Objective = "Breach",  -- Mission objective/mode.
+            Difficulty = "Hardest",  -- Mission difficulty.
+
+            Modifiers = {            -- Mission modifiers to select automatically.
+                "Nightmare",         -- Enables the Nightmare modifier.
+                "No Skills",         -- Enables the No Skills modifier.
+                "Injury Prone",      -- Enables the Injury Prone modifier.
+                "Oddball",           -- Enables the Oddball modifier.
+                "No Perks",          -- Enables the No Perks modifier.
+                "Fog",               -- Enables the Fog modifier.
+                "Glass Cannon",      -- Enables the Glass Cannon modifier.
+                "Chronic Injuries",  -- Enables the Chronic Injuries modifier.
+                "No Memories",       -- Enables the No Memories modifier.
+                "Time Trial",        -- Enables the Time Trial modifier.
+            },
+
+            Delay = 5,               -- Seconds the mission starter waits between/start around mission actions.
+            WavesDelay = 0,          -- Extra delay in seconds for wave actions.
+        },
+
+        Boosts = {
+            Enabled = true,          -- Master toggle for the automatic boost system.
+            Gold = true,             -- Enables automatic Gold boost handling.
+            Luck = false,            -- Enables automatic Luck boost handling.
+            XP = false,              -- Enables automatic XP boost handling.
+            Delay = 1,               -- Seconds between automatic boost checks.
+
+            Purchase = false,        -- Enables the separate boost-purchase feature.
+            AutoUse = false,         -- Automatically uses boosts selected in Selected.
+            Selected = {},           -- Boosts for the separate purchase/use system. Example: {"2x Gold Boost [2h]"}.
+            Amount = 1,              -- Quantity used by the separate boost-purchase system.
+            UseDelay = 0,            -- Delay in seconds between separate boost-use actions.
+        },
+
+        Cosmetics = {
+            AutoSell = true,         -- Automatically sells all obtainable mission-drop cosmetics listed in Auto Sell Cosmetics.
+            Repeat = 3,              -- Number of sell attempts made for each cosmetic per cycle.
+            Delay = 0.25,            -- Seconds between cosmetic sell requests.
+        },
+
+        Perks = {
+            AutoDelete = true,       -- Automatically deletes perks matching the enabled rarities below.
+
+            Common = true,           -- Delete Common perks.
+            Rare = true,             -- Delete Rare perks.
+            Epic = true,             -- Delete Epic perks.
+            Legendary = true,        -- Delete Legendary perks.
+            Secret = false,          -- Delete Secret perks. false keeps them.
+
+            Delay = 0.05,            -- Seconds between perk-delete batches.
+            Interval = 5,            -- Seconds between automatic perk-delete scans.
+        },
+
+        Upgrades = {
+            Blade = true,            -- Automatically upgrades Blade equipment.
+            Spear = false,           -- Automatically upgrades Thunder Spear equipment.
+
+            BladeDelay = 0.1,          -- Extra delay between Blade upgrade actions.
+            SpearDelay = 0,          -- Extra delay between Spear upgrade actions.
+        },
+
+        Skills = {
+            Unlock = true,           -- Automatically unlocks skills according to the configured side choices.
+            AutoEquip = true,        -- Automatically equips the five skill IDs below.
+
+            SupportSide = "Right",   -- Support skill-tree side. Example: "Left", "Right", or "None".
+            OffenseSide = "Left",    -- Offense skill-tree side.
+            DefenseSide = "None",    -- Defense skill-tree side. "None" disables that side.
+
+            UnlockDelay = 0.08,      -- Seconds between automatic skill-unlock actions.
+            EquipDelay = 1,          -- Seconds between automatic skill-equip actions.
+
+            Slots = {
+                "76",                -- Skill ID for slot 1.
+                "95",                -- Skill ID for slot 2.
+                "26",                -- Skill ID for slot 3.
+                "7",                 -- Skill ID for slot 4.
+                "3",                 -- Skill ID for slot 5.
+            },
+        },
+
+        ShadowChecker = {
+            Enabled = true,          -- Enables the account/shadow-checker logic.
+            WebhookURL = "https://discord.com/api/webhooks/1398658944578355323/IMZAxHul-JnmivPapO2Xd1R_Ddxwwq49O91dSQo-3fLerY6AqM7D0h6cOSQdeaiUR2cP",         -- Webhook used by the shadow checker. Leave "" if you do not want one.
+        },
+
+        Prestige = {
+            Enabled = true,          -- Enables automatic prestige.
+            ForceGold = true,        -- Forces/uses the custom Gold requirement values below.
+
+            GoldRequirements = {
+                [0] = 0,           -- Gold requirement used for Prestige 0 -> 1.
+                [1] = 0,           -- Gold requirement used for Prestige 1 -> 2.
+                [2] = 0,           -- Gold requirement used for Prestige 2 -> 3.
+                [3] = 700,           -- Gold requirement used for Prestige 3 -> 4.
+                [4] = 1000,          -- Gold requirement used for Prestige 4 -> 5.
+            },
+
+            Boost = "Gold Boost",    -- Boost name/value passed to the prestige system.
+            SendAs = "Name",         -- Format used when sending the prestige boost/talent value.
+            Cooldown = 5,            -- Seconds between prestige attempts.
+        },
+
+        Claims = {
+            Quests = true,            -- Claims only currently claimable non-Battlepass quests using the live quest reader.
+            Achievements = true,     -- Claims only currently claimable achievements using the live Titles reader.
+            Delay = 0.1,               -- Extra delay between claim actions.
+        },
+
+        Trade = {
+            Receiver = {             -- Account 1 / Receiver usernames.
+                "Xz_CrazejBMoonOBEcho", -- This username is treated as a receiver account.
+            },
+
+            Sender = {               -- Account 2 / Sender usernames.
+                "GoldeeenlionBlox",  -- This username is treated as a sender account.
+            },
+
+            ReceiverSend = true,     -- Enables repeated trade invites/actions for Receiver-list accounts.
+            ReceiverAccept = true,   -- Enables automatic trade acceptance for Receiver-list accounts.
+
+            SenderSend = true,       -- Enables repeated trade invites/actions for Sender-list accounts.
+            SenderAccept = true,     -- Enables automatic trade acceptance for Sender-list accounts.
+
+            CurrentPlayersSend = false,   -- Enables Send Trade for the Current Players selection.
+            CurrentPlayersAccept = false, -- Enables Auto Accept for the Current Players selection.
+
+            ApplyHistory = true,     -- Applies the trading history option below.
+            History = "Off",         -- Trading history setting sent to the game. "On" or "Off".
+
+            AutoTrade = false,       -- Enables the manual Auto Trade item-giving worker.
+            AcceptTrade = true,      -- Automatically readies/accepts the active trade.
+
+            Items = {                -- Items the sender should place into the trade.
+                "Memory Scroll",     -- Trade Memory Scrolls.
+            },
+
+            AmountPerItem = 100,     -- Target amount of each selected item to place in the trade.
+
+            AutoDisable = false,     -- Automatically stops trade logic when the configured threshold is reached.
+            AutoDisableThreshold = 0,-- Memory Scroll threshold used by AutoDisable.
+
+            ReceiverInput = "",      -- Text used when manually adding a Receiver username to the saved list.
+            SenderInput = "",        -- Text used when manually adding a Sender username to the saved list.
+        },
+    },
+
+    -- ========================================================
+    -- IN MISSION
+    -- Used after entering an actual mission.
+    -- ========================================================
+    Mission = {
+        HideUI = true,               -- Compatibility setting; headless mode has no Linoria menu.
+        MobileUI = false,             -- Disables old mobile-UI compatibility behavior in missions.
+
+        AutoFarm = true,             -- Master Blade auto-farm toggle.
+        AutoReload = true,           -- Automatically refills/reloads Blade equipment.
+        AutoRetry = true,            -- Automatically presses Retry after mission rewards appear.
+        AutoReturn = true,           -- Returns to Town Central after TargetMissions missions.
+
+        AutoThunderSpear = false,    -- Enables the Thunder Spear auto-farm system.
+        AutoSpearQuest = false,      -- Enables the automatic Thunder Spear quest helper.
+
+        SpearHitDistanceEnabled = true, -- Enables the custom Thunder Spear hit-distance setting below.
+
+        SkipCutScene = true,        -- Enables the supported automatic cutscene skip feature.
+        SkipForce = false,           -- Enables the force-skip helper where supported.
+
+        PlayerStats = true,         -- Enables the player-stats display/worker from the original script.
+
+        Farm = {
+            Mode = "No Movement",          -- Blade movement mode: "Tween", "Teleport", or "No Movement".
+            HoverSpeed = 1000,       -- Tween/movement speed used while moving above Titans.
+            HoverHeight = 400,       -- Height in studs to stay above the current Titan.
+
+            SafetyTime = 0,          -- Seconds to wait in safety/wave state before normal farming starts.
+            StopAtTitansLeft = 0,    -- Stop/pause threshold based on Titans remaining. 0 disables the threshold.
+            KillHits = 9,            -- Number of Titan targets/hits used by the fast Titan worker.
+        },
+
+        RemoteControl = {
+            BladeBatchInterval = 0.60, -- Exact working 9-Titan burst every 0.5s.
+            BladeHitSpacing = 0.00,    -- Hits inside one batch are sent together so all 9 register in the same attack window.
+            BladeRehitDelay = 0.75,    -- Minimum delay before retrying the same Titan.
+            BladeScanRate = 0.12,      -- Titan cache refresh interval.
+
+            ReloadRetryDelay = 0.18,   -- Delay between blade reload retries.
+            ReloadMaxAttempts = 6,     -- Hard cap on reload remotes per reload action.
+            RefillRetryDelay = 0.20,   -- Delay between refill retries.
+            RefillMaxAttempts = 5,     -- Hard cap on refill remotes per refill action.
+
+            SpearAttackInterval = 0.30, -- Minimum seconds between Thunder Spear attack cycles.
+            SpearMaxTargets = 9,        -- Maximum explosion targets per Spear cycle.
+            SpearHitSpacing = 0.03,     -- Gap between Spear explosion remotes.
+            SpearRehitDelay = 0.60,     -- Delay before exploding the same Titan again.
+        },
+
+        ThunderSpear = {
+            Mode = "Tween",          -- Thunder Spear movement mode.
+            HoverSpeed = 120,        -- Thunder Spear movement/tween speed.
+            HoverHeight = 120,       -- Height in studs used by Thunder Spear farming.
+            HitDistance = 80,        -- Maximum configured Thunder Spear hit distance.
+        },
+
+        Performance = {
+            UIScale = 100,           -- Old UI scale percentage. Kept for compatibility even though this build is headless.
+            FPSLimit = 10,           -- FPS cap from the config you sent.
+
+            RenderModes = {          -- Performance/render optimizations to enable.
+                "Delete Map",        -- Removes supported map objects to reduce rendering load.
+                "Low Graphic",
+                "Disable 3D rendering"       -- Applies the original low-graphics optimization.
+                 -- Disables 3D rendering where supported for maximum performance.
+            },
+        },
+
+        Return = {
+            TargetMissions = 20,     -- Number of completed missions before AutoReturn goes back to the lobby.
+        },
+
+        FailSafe = {
+            Enabled = false,          -- Enables the combined fail-safe action system.
+            Delay = 250,              -- Seconds before the configured fail-safe action is performed.
+
+            Actions = {              -- Actions performed by the fail-safe when enabled.
+                "Teleport to Lobby", -- Teleports back to Town Central/lobby.
+            },
+        },
+
+        Webhook = {
+            Enabled = true,          -- Sends mission/result data through the configured webhook system.
+            URL = "https://discord.com/api/webhooks/1477622665928769536/JO474IX4qv00G9d3WL0AyQdHScSAXXO8M2pjrajZHYFmRLeOI3nFMq2axvWz-D0NFixy", -- Mission webhook URL.
+            Mode = "All Data",       -- Amount/type of information included in the webhook message.
+            PingMode = "None",       -- Ping behavior for webhook messages.
+
+            Filters = {              -- Data categories included in the webhook.
+                "Progression",       -- Include progression data.
+                "Currency",          -- Include currency data.
+                "Cosmetics",         -- Include cosmetic data.
+                "Loadout",           -- Include loadout data.
+                "Inventory",         -- Include inventory data.
+            },
+        },
+
+        Description = {
+            Enabled = false,         -- Automatic description/status generation stays disabled.
+            Type = "Horst",          -- Description format/type used by the original feature.
+
+            Stats = {                -- Stats selected in your config.
+                "Prestige",
+                "Shards",
+                "Slot",
+                "Spins",
+                "Level",
+                "Gems",
+                "Gold",
+            },
+
+            Items = {},              -- No description items selected.
+            Cosmetics = {},          -- No description cosmetics selected.
+        },
+    },
+
+    -- ========================================================
+    -- ADVANCED OVERRIDES
+    -- Normally leave these empty.
+    -- These let you override an original control ID directly without
+    -- changing the simple sections above.
+    -- Example:
+    -- Toggles = {AutoFarmBlade = false}
+    -- ========================================================
+    Advanced = {
+        Toggles = {},                -- Exact original toggle IDs and true/false values.
+        Values = {},                 -- Exact original slider/dropdown IDs and their values.
+        Inputs = {},                 -- Exact original input IDs and their text values.
+        Buttons = {},                -- Exact original button names; true runs that action once.
+    },
+}
+
+-- ============================================================
+-- LOAD THE GITHUB CORE
+-- Replace YOUR_USERNAME and YOUR_REPO once.
+-- ============================================================
+
+-- ============================================================
 -- TOWNSHIP HEADLESS / CONFIG-ONLY BUILD
 -- Based on TownShip_Optimized_Fixed_8sLobbyWait.lua
 -- No Linoria menu is downloaded or rendered.
@@ -26,6 +383,31 @@ if type(CONFIG) ~= "table" then
     warn("[Asta v1] Config not found.")
     warn("[Asta v1] Run Asta_v1_Loader.lua instead of Asta_v1.lua directly.")
     return
+end
+
+-- ============================================================
+-- CONSOLE OUTPUT MASTER SWITCH
+-- ConsoleMessages = false suppresses every print()/warn() emitted
+-- by this Asta chunk. The original functions are kept so turning
+-- the option back on restores normal console output.
+-- ============================================================
+local _AstaOriginalPrint = print
+local _AstaOriginalWarn = warn
+local _AstaConsoleMessages = not (
+    CONFIG.System
+    and CONFIG.System.ConsoleMessages == false
+)
+
+local function print(...)
+    if _AstaConsoleMessages then
+        _AstaOriginalPrint(...)
+    end
+end
+
+local function warn(...)
+    if _AstaConsoleMessages then
+        _AstaOriginalWarn(...)
+    end
 end
 
 
@@ -8625,180 +9007,746 @@ if IsLobbyLobby() then
     end)
 end
 if IsLobbyLobby() then
-    local AutoClaimGroup = Tabs.Session:AddLeftGroupbox("Auto Claims")
-    
-    getgenv().ClaimQuestEnabled = false
-    getgenv().ClaimQuestRunning = false
-    getgenv().ClaimAchievementEnabled = false
-    getgenv().ClaimAchievementRunning = false
-    getgenv().ClaimDelay = 0
-    
-    local statusLabel = AutoClaimGroup:AddLabel("Status: Checking...", true)
-    
-        local function parseCurrencyText(text)
-        if not text or text == "" then return 0 end
-        local t = tostring(text):gsub(",", ""):upper():gsub("%s+", "")
-        local num = tonumber(t:match("[%d%.]+")) or 0
-        if t:find("B") then num = num * 1e9
-        elseif t:find("M") then num = num * 1e6
-        elseif t:find("K") then num = num * 1e3 end
-        return math.floor(num)
-    end
+    (function()
+        local AutoClaimGroup = Tabs.Session:AddLeftGroupbox("Auto Claims")
 
-    local function getCurrencyValues()
-        local goldAmount = 0
-        local gemsAmount = 0
+        getgenv().ClaimQuestEnabled = false
+        getgenv().ClaimQuestRunning = false
+        getgenv().ClaimAchievementEnabled = false
+        getgenv().ClaimAchievementRunning = false
+        getgenv().ClaimDelay = 0
 
-        -- Prefer server data
-        pcall(function()
-            local data = GET:InvokeServer("Data", "Copy")
-            if data and data.Slots then
-                local slotKey = data.Current_Slot or "A"
-                local slot = data.Slots[slotKey]
-                if slot and slot.Currency then
-                    if type(slot.Currency.Gold) == "number" then goldAmount = slot.Currency.Gold end
-                    if type(slot.Currency.Gems) == "number" then gemsAmount = slot.Currency.Gems end
+        local statusLabel = AutoClaimGroup:AddLabel("Status: Ready", true)
+
+        -- ============================================================
+        -- NEW AUTO CLAIM QUEST SYSTEM
+        -- 1) Prime the client quest cache with the exact working remote.
+        -- 2) Read live quest progress from client memory / prime response.
+        -- 3) Compare against ReplicatedStorage.Modules.Storage.Quest.
+        -- 4) Ignore Battlepass (Week 1.1 -> Week 10.5).
+        -- 5) Claim ONLY quests that are actually claimable.
+        -- ============================================================
+
+        local QuestModule = nil
+        local AmountByTag = {}
+        local PrerequisiteByTag = {}
+        local questMetadataReady = false
+
+        local function loadQuestMetadata()
+            if questMetadataReady then
+                return true
+            end
+
+            local ok, result = pcall(function()
+                return require(
+                    ReplicatedStorage
+                        :WaitForChild("Modules")
+                        :WaitForChild("Storage")
+                        :WaitForChild("Quest")
+                )
+            end)
+
+            if not ok or type(result) ~= "table" then
+                return false
+            end
+
+            QuestModule = result
+            AmountByTag = {}
+            PrerequisiteByTag = {}
+
+            for _, group in pairs(QuestModule) do
+                if type(group) == "table"
+                    and type(group.Quests) == "table" then
+
+                    for _, quest in pairs(group.Quests) do
+                        if quest.Tag and quest.Amount then
+                            AmountByTag[tostring(quest.Tag)] = tonumber(quest.Amount)
+                        end
+                    end
+
+                    if group.Pre_Requisite then
+                        local parent = QuestModule[group.Pre_Requisite]
+                        local childQuest = group.Quests[1]
+                        local parentQuest = parent
+                            and parent.Quests
+                            and parent.Quests[1]
+
+                        if childQuest
+                            and childQuest.Tag
+                            and parentQuest
+                            and parentQuest.Tag then
+
+                            PrerequisiteByTag[tostring(childQuest.Tag)] =
+                                tostring(parentQuest.Tag)
+                        end
+                    end
                 end
             end
-        end)
 
-        if goldAmount > 0 or gemsAmount > 0 then
-            return goldAmount, gemsAmount
+            questMetadataReady = true
+            return true
         end
 
-        -- Fallback UI
-        pcall(function()
-            local player = game:GetService("Players").LocalPlayer
-            local topbar = player.PlayerGui.Interface.Topbar.Main.Currencies
-            if topbar then
-                local goldLabel = topbar.Gold and topbar.Gold:FindFirstChild("Amount")
-                local gemsLabel = topbar.Gems and topbar.Gems:FindFirstChild("Amount")
-                if goldLabel and goldLabel.Text then
-                    goldAmount = parseCurrencyText(goldLabel.Text)
+        local function isLiveQuestSlot(tbl)
+            if type(tbl) ~= "table" then
+                return false
+            end
+
+            local quests = rawget(tbl, "Quests")
+            if type(quests) ~= "table" then
+                return false
+            end
+
+            local categoryCount = 0
+
+            if type(quests.Main) == "table" then categoryCount += 1 end
+            if type(quests.Side) == "table" then categoryCount += 1 end
+            if type(quests.Daily) == "table" then categoryCount += 1 end
+            if type(quests.Weekly) == "table" then categoryCount += 1 end
+            if type(quests.Spears) == "table" then categoryCount += 1 end
+
+            return categoryCount >= 3
+        end
+
+        local function findLiveQuestSlot(value, seen)
+            if type(value) ~= "table" then
+                return nil
+            end
+
+            seen = seen or {}
+            if seen[value] then
+                return nil
+            end
+            seen[value] = true
+
+            if isLiveQuestSlot(value) then
+                return value
+            end
+
+            local slots = rawget(value, "Slots")
+            if type(slots) == "table" then
+                local current = rawget(value, "Current_Slot")
+                    or rawget(value, "CurrentSlot")
+                    or "A"
+
+                if isLiveQuestSlot(slots[current]) then
+                    return slots[current]
                 end
-                if gemsLabel and gemsLabel.Text then
-                    gemsAmount = parseCurrencyText(gemsLabel.Text)
+
+                if isLiveQuestSlot(slots.A) then
+                    return slots.A
                 end
             end
-        end)
-        return goldAmount, gemsAmount
-    end
-    
-    local function isCurrenciesReady()
-        local gold, gems = getCurrencyValues()
-        return (gold > 0 or gems > 0)
-    end
-    
-        task.spawn(function()
-        while true do
-            task.wait(1)
-            pcall(function()
-                local ready = isCurrenciesReady()
-                if ready then
-                    statusLabel:SetText("Status: Ready")
+
+            for _, child in pairs(value) do
+                if type(child) == "table" then
+                    local found = findLiveQuestSlot(child, seen)
+                    if found then
+                        return found
+                    end
+                end
+            end
+
+            return nil
+        end
+
+        local function primeAndFindQuestSlot()
+            local primeResults = table.pack(
+                pcall(function()
+                    return GET:InvokeServer(
+                        "Functions",
+                        "Settings",
+                        "Music",
+                        26
+                    )
+                end)
+            )
+
+            if not primeResults[1] then
+                return nil, "prime_failed"
+            end
+
+            -- Prefer the data returned by the working prime remote itself.
+            for i = 2, primeResults.n do
+                local slot = findLiveQuestSlot(primeResults[i], {})
+                if slot then
+                    return slot, "prime_return"
+                end
+            end
+
+            -- The prime call may populate the game's client cache instead.
+            if getgc then
+                for _ = 1, 20 do
+                    for _, obj in ipairs(getgc(true)) do
+                        if isLiveQuestSlot(obj) then
+                            return obj, "client_cache"
+                        end
+                    end
+                    task.wait(0.25)
+                end
+            end
+
+            return nil, "not_found"
+        end
+
+        local function buildClaimableList(slotData)
+            local claimable = {}
+            local quests = slotData and slotData.Quests
+
+            if type(quests) ~= "table" then
+                return claimable
+            end
+
+            local function checkQuest(category, quest)
+                if type(quest) ~= "table" or not quest.Tag then
+                    return
+                end
+
+                -- Same condition used by the game's quest UI.
+                if quest.Rewarded ~= nil then
+                    return
+                end
+
+                local tag = tostring(quest.Tag)
+                local current = tonumber(quest.Current) or 0
+                local amount = tonumber(quest.Amount) or AmountByTag[tag]
+
+                if amount and current >= amount then
+                    claimable[#claimable + 1] = {
+                        Tag = tag,
+                        Category = tostring(category),
+                        Current = current,
+                        Amount = amount,
+                    }
+                end
+            end
+
+            local function scanCategory(category, list)
+                if type(list) ~= "table" then
+                    return
+                end
+
+                for _, quest in pairs(list) do
+                    checkQuest(category, quest)
+                end
+            end
+
+            for category, list in pairs(quests) do
+                -- Explicitly ignore all Battlepass quests:
+                -- Week 1.1 through Week 10.5.
+                if category ~= "Battlepass" then
+                    scanCategory(tostring(category), list)
+                end
+            end
+
+            -- Claim prerequisite quests first (Towers -> Escort, etc.).
+            local byTag = {}
+            for _, quest in ipairs(claimable) do
+                byTag[quest.Tag] = quest
+            end
+
+            local ordered = {}
+            local added = {}
+            local visiting = {}
+
+            local function addQuest(tag)
+                if added[tag] or visiting[tag] then
+                    return
+                end
+
+                visiting[tag] = true
+
+                local prerequisite = PrerequisiteByTag[tag]
+                if prerequisite and byTag[prerequisite] then
+                    addQuest(prerequisite)
+                end
+
+                visiting[tag] = nil
+
+                local quest = byTag[tag]
+                if quest and not added[tag] then
+                    added[tag] = true
+                    ordered[#ordered + 1] = quest
+                end
+            end
+
+            for _, quest in ipairs(claimable) do
+                addQuest(quest.Tag)
+            end
+
+            return ordered
+        end
+
+        local function claimDetectedQuests()
+            if not loadQuestMetadata() then
+                statusLabel:SetText("Status: Quest definitions unavailable")
+                return 0, 0, 0
+            end
+
+            statusLabel:SetText("Status: Reading claimable quests...")
+
+            local slotData, source = primeAndFindQuestSlot()
+            if not slotData then
+                statusLabel:SetText("Status: Quest data not found")
+                return 0, 0, 0
+            end
+
+            local claimable = buildClaimableList(slotData)
+            getgenv().ClaimableQuests = claimable
+
+            print("")
+            print("======================================")
+            print("CLAIMABLE QUESTS:", #claimable)
+            print("======================================")
+
+            for i, quest in ipairs(claimable) do
+                print(
+                    "[" .. i .. "]",
+                    quest.Tag,
+                    "| Category:",
+                    quest.Category,
+                    "| Progress:",
+                    quest.Current .. "/" .. quest.Amount
+                )
+            end
+
+            print("======================================")
+
+            if #claimable == 0 then
+                statusLabel:SetText("Status: 0 claimable quests")
+                return 0, 0, 0
+            end
+
+            local claimed = 0
+            local failed = 0
+
+            for _, quest in ipairs(claimable) do
+                if not getgenv().ClaimQuestEnabled then
+                    break
+                end
+
+                local result = table.pack(
+                    pcall(function()
+                        return GET:InvokeServer(
+                            "Functions",
+                            "Quest",
+                            quest.Tag,
+                            quest.Category
+                        )
+                    end)
+                )
+
+                if result[1] then
+                    local serverAccepted = result[2] ~= nil
+                        and result[3] ~= nil
+                        and result[4] ~= nil
+
+                    if serverAccepted then
+                        claimed += 1
+                        print("[AutoClaim] CLAIMED:", quest.Tag)
+                    else
+                        failed += 1
+                        warn("[AutoClaim] Server rejected:", quest.Tag)
+                    end
                 else
-                    statusLabel:SetText("Status: Not Ready (Waiting for Gold/Gems)")
+                    failed += 1
+                    warn("[AutoClaim] ERROR:", quest.Tag, tostring(result[2]))
+                end
+
+                task.wait(math.max(0.05, tonumber(getgenv().ClaimDelay) or 0))
+            end
+
+            print("")
+            print("======================================")
+            print("[AutoClaim] FINISHED")
+            print("[AutoClaim] Source:", source)
+            print("[AutoClaim] Detected:", #claimable)
+            print("[AutoClaim] Claimed:", claimed)
+            print("[AutoClaim] Failed:", failed)
+            print("======================================")
+
+            statusLabel:SetText(
+                string.format(
+                    "Status: %d/%d quests claimed",
+                    claimed,
+                    #claimable
+                )
+            )
+
+            return #claimable, claimed, failed
+        end
+
+        local function claimAllQuests()
+            -- One optimized pass per lobby load/toggle activation.
+            -- The script reloads on each lobby teleport, so this replaces the
+            -- old endless hardcoded QuestList spam loop.
+            local ok, err = pcall(claimDetectedQuests)
+            if not ok then
+                warn("[AutoClaim] Quest pass error:", tostring(err))
+                statusLabel:SetText("Status: Quest claim error")
+            end
+            getgenv().ClaimQuestRunning = false
+        end
+
+        -- ============================================================
+        -- NEW AUTO CLAIM ACHIEVEMENT SYSTEM
+        -- 1) Prime the same client data used by the working reader.
+        -- 2) Load exact achievement requirements from Storage.Titles.
+        -- 3) Merge every live player Titles cache found in getgc().
+        -- 4) Claim ONLY achievements with Owned ~= true and Current >= Requirement.
+        -- 5) Use the game's exact S_Achievements -> Claim -> ID remote.
+        -- ============================================================
+
+        local function claimAllAchievements()
+            local passOk, passErr = pcall(function()
+                -- Prime the client/player-data cache exactly like the tested reader.
+                pcall(function()
+                    GET:InvokeServer("Functions", "Settings", "Music", 26)
+                end)
+                task.wait(0.2)
+
+                pcall(function()
+                    GET:InvokeServer("S_Achievements", "Category", 5)
+                end)
+                task.wait(0.4)
+
+                local titlesOk, TitlesModule = pcall(function()
+                    return require(
+                        ReplicatedStorage
+                            :WaitForChild("Modules")
+                            :WaitForChild("Storage")
+                            :WaitForChild("Titles")
+                    )
+                end)
+
+                if not titlesOk or type(TitlesModule) ~= "table" then
+                    error("Storage.Titles could not be loaded")
+                end
+
+                local Definitions = {}
+
+                for categoryName, category in pairs(TitlesModule) do
+                    if type(category) == "table"
+                        and type(category.Titles) == "table" then
+
+                        for id, info in pairs(category.Titles) do
+                            id = tonumber(id)
+
+                            if id
+                                and id >= 1
+                                and id <= 71
+                                and type(info) == "table" then
+
+                                local requirement = info.Requirement
+
+                                if type(requirement) == "string" then
+                                    requirement = 1
+                                else
+                                    requirement = tonumber(requirement)
+                                end
+
+                                Definitions[id] = {
+                                    ID = id,
+                                    Title = tostring(info.Title or ("ID " .. id)),
+                                    Requirement = requirement,
+                                    Category = tostring(category.Tag or categoryName)
+                                }
+                            end
+                        end
+                    end
+                end
+
+                if not getgc then
+                    error("getgc is not supported")
+                end
+
+                local function countValidTitleStates(titles)
+                    if type(titles) ~= "table" then
+                        return 0
+                    end
+
+                    local count = 0
+
+                    for id = 1, 71 do
+                        local state = titles[id] or titles[tostring(id)]
+
+                        if type(state) == "table"
+                            and state.Current ~= nil then
+                            count += 1
+                        end
+                    end
+
+                    return count
+                end
+
+                local function looksLikePlayerSlot(tbl)
+                    if type(tbl) ~= "table" then
+                        return false
+                    end
+
+                    local titles = rawget(tbl, "Titles")
+
+                    if type(titles) ~= "table"
+                        or countValidTitleStates(titles) < 20 then
+                        return false
+                    end
+
+                    return type(rawget(tbl, "Quests")) == "table"
+                        or type(rawget(tbl, "Progression")) == "table"
+                        or type(rawget(tbl, "Currency")) == "table"
+                        or type(rawget(tbl, "Claimed")) == "table"
+                end
+
+                local Merged = {}
+                local cacheCount = 0
+
+                for _, obj in ipairs(getgc(true)) do
+                    if looksLikePlayerSlot(obj) then
+                        cacheCount += 1
+
+                        local titles = obj.Titles
+
+                        for id = 1, 71 do
+                            local state = titles[id] or titles[tostring(id)]
+
+                            if type(state) == "table" then
+                                local current = tonumber(state.Current)
+
+                                if current ~= nil then
+                                    local merged = Merged[id]
+
+                                    if not merged then
+                                        merged = {
+                                            Current = current,
+                                            Owned = nil,
+                                            Seen = 0
+                                        }
+                                        Merged[id] = merged
+                                    end
+
+                                    merged.Seen += 1
+
+                                    if current > merged.Current then
+                                        merged.Current = current
+                                    end
+
+                                    -- If any live cache already says Owned=true,
+                                    -- never waste a claim request on that ID.
+                                    if state.Owned == true then
+                                        merged.Owned = true
+                                    elseif merged.Owned ~= true
+                                        and state.Owned ~= nil then
+                                        merged.Owned = state.Owned
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                print("[AutoAchievement] Live slot caches:", cacheCount)
+
+                if cacheCount == 0 then
+                    error("No live achievement data found")
+                end
+
+                local claimable = {}
+
+                for id = 1, 71 do
+                    local definition = Definitions[id]
+                    local state = Merged[id]
+
+                    if definition
+                        and state
+                        and definition.Requirement then
+
+                        local current = tonumber(state.Current) or 0
+                        local requirement = tonumber(definition.Requirement) or 0
+
+                        if state.Owned ~= true
+                            and current >= requirement then
+
+                            claimable[#claimable + 1] = {
+                                ID = id,
+                                Title = definition.Title,
+                                Category = definition.Category,
+                                Current = current,
+                                Requirement = requirement,
+                                Sources = state.Seen
+                            }
+                        end
+                    end
+                end
+
+                table.sort(claimable, function(a, b)
+                    return a.ID < b.ID
+                end)
+
+                getgenv().ClaimableAchievements = claimable
+
+                print("")
+                print("======================================")
+                print("CLAIMABLE ACHIEVEMENTS:", #claimable)
+                print("======================================")
+
+                for i, achievement in ipairs(claimable) do
+                    print(
+                        "[" .. i .. "]",
+                        "ID:", achievement.ID,
+                        "|", achievement.Title,
+                        "| Category:", achievement.Category,
+                        "| Progress:", achievement.Current .. "/" .. achievement.Requirement,
+                        "| Caches:", achievement.Sources
+                    )
+                end
+
+                print("======================================")
+
+                if #claimable == 0 then
+                    statusLabel:SetText("Status: 0 claimable achievements")
+                    return
+                end
+
+                local claimed = 0
+                local failed = 0
+
+                for _, achievement in ipairs(claimable) do
+                    if not getgenv().ClaimAchievementEnabled then
+                        break
+                    end
+
+                    print(
+                        "[AutoAchievement] Claiming:",
+                        achievement.ID,
+                        "|",
+                        achievement.Title
+                    )
+
+                    local result = table.pack(
+                        pcall(function()
+                            return GET:InvokeServer(
+                                "S_Achievements",
+                                "Claim",
+                                achievement.ID
+                            )
+                        end)
+                    )
+
+                    if result[1]
+                        and result[2] ~= nil
+                        and result[3] ~= nil then
+
+                        claimed += 1
+                        print(
+                            "[AutoAchievement] CLAIMED:",
+                            achievement.ID,
+                            "|",
+                            achievement.Title,
+                            "| Rarity:",
+                            tostring(result[3])
+                        )
+                    else
+                        failed += 1
+
+                        if result[1] then
+                            warn(
+                                "[AutoAchievement] Server rejected:",
+                                achievement.ID,
+                                "|",
+                                achievement.Title
+                            )
+                        else
+                            warn(
+                                "[AutoAchievement] ERROR:",
+                                achievement.ID,
+                                "|",
+                                tostring(result[2])
+                            )
+                        end
+                    end
+
+                    task.wait(math.max(0.05, tonumber(getgenv().ClaimDelay) or 0))
+                end
+
+                print("")
+                print("======================================")
+                print("[AutoAchievement] FINISHED")
+                print("[AutoAchievement] Detected:", #claimable)
+                print("[AutoAchievement] Claimed:", claimed)
+                print("[AutoAchievement] Failed:", failed)
+                print("======================================")
+
+                statusLabel:SetText(
+                    string.format(
+                        "Status: %d/%d achievements claimed",
+                        claimed,
+                        #claimable
+                    )
+                )
+            end)
+
+            if not passOk then
+                warn("[AutoAchievement] Pass error:", tostring(passErr))
+                statusLabel:SetText("Status: Achievement claim error")
+            end
+
+            getgenv().ClaimAchievementEnabled = false
+            getgenv().ClaimAchievementRunning = false
+
+            pcall(function()
+                if Options and Options.ClaimAchievementToggle then
+                    Options.ClaimAchievementToggle:SetValue(false)
                 end
             end)
         end
-    end)
-    
-    local QuestList = {
-        {name="Novice Adventurer", category="Main"},{name="Seasoned Operative", category="Main"},{name="Master Of Missions", category="Main"},{name="Elite Taskmaster", category="Main"},{name="Legendary Quester", category="Main"},{name="Completionist", category="Main"},{name="Rookie Raider", category="Main"},{name="Raid Veteran", category="Main"},{name="Raid Commander", category="Main"},{name="Raid Warlord", category="Main"},{name="Raid Conqueror", category="Main"},{name="Precise Striker", category="Main"},{name="Critical Sniper", category="Main"},{name="Devastating Precision", category="Main"},{name="Critical Master", category="Main"},{name="Critical Legend", category="Main"},{name="Critical Demigod", category="Main"},{name="Novice Wrecker", category="Main"},{name="Demolition Expert", category="Main"},{name="Destruction Maestro", category="Main"},{name="Damage Dynamo", category="Main"},{name="Cataclysmic Force", category="Main"},{name="Devastation Virtuoso", category="Main"},{name="Titan Hunter", category="Main"},{name="Titan Slayer", category="Main"},{name="Titan Executioner", category="Main"},{name="Titan Butcher", category="Main"},{name="Titan Dominator", category="Main"},{name="Titan Conqueror", category="Main"},{name="Rookie Adventurer", category="Main"},{name="Seasoned Warrior", category="Main"},{name="Master Of Experience", category="Main"},{name="Legendary Ascendant", category="Main"},{name="Divine Prestige", category="Main"},{name="Ultimate Champion", category="Main"},{name="Prestige Aspirant", category="Main"},{name="Prestige Challenger", category="Main"},{name="Prestige Enthusiast", category="Main"},{name="Prestige Expert", category="Main"},
-        {name="Casual Explorer", category="Side"},{name="Guardian Angel", category="Side"},{name="Penny Pincher", category="Side"},{name="Eye Of The Storm", category="Side"},{name="Shifting Apprentice", category="Side"},{name="Skill Novice", category="Side"},{name="Team Player", category="Side"},{name="Wealth Accumulator", category="Side"},{name="Rescuer Extraordinaire", category="Side"},{name="Teamwork Enthusiast", category="Side"},{name="Dedicated Adventurer", category="Side"},{name="Skill Practitioner", category="Side"},{name="Shifting Adept", category="Side"},{name="Leg Lacerator", category="Side"},{name="Treasure Hunter", category="Side"},{name="Seasoned Gamer", category="Side"},{name="Cooperative Expert", category="Side"},{name="Skill Expert", category="Side"},{name="Lifesaver Pro", category="Side"},{name="Shifting Expert", category="Side"},{name="Arm Annihilator", category="Side"},{name="Skill Master", category="Side"},{name="Titan Torturer", category="Side"},{name="Teamwork Specialist", category="Side"},{name="Fortune Hoarder", category="Side"},{name="Saving Supreme", category="Side"},{name="Endurance Champion", category="Side"},{name="Shifting Master", category="Side"},{name="Shifting Guru", category="Side"},{name="Titan Annihilator", category="Side"},{name="Teamwork Virtuoso", category="Side"},{name="Timeless Immortal", category="Side"},{name="Money Magician", category="Side"},{name="Skill Virtuoso", category="Side"},{name="Player's Champion", category="Side"},{name="Teamwork Maestro", category="Side"},{name="Skill Prodigy", category="Side"},{name="Legendary Superior", category="Side"},{name="Titan's Nightmare", category="Side"},{name="Ultimate Protector", category="Side"},{name="Ultimate Victor", category="Side"},{name="Shifting Virtuoso", category="Side"},
-        {name="Daily 1", category="Daily"},{name="Daily 2", category="Daily"},{name="Daily 3", category="Daily"},
-        {name="Weekly 1", category="Weekly"},{name="Weekly 2", category="Weekly"},{name="Weekly 3", category="Weekly"},{name="Weekly 4", category="Weekly"},
-        {name="Towers", category="Spears"},{name="Escort", category="Spears"},{name="Ice Burst Stones", category="Spears"},{name="Retrieve Missing Supplies", category="Spears"},{name="Defend Missing Supplies", category="Spears"}
-    }
-    
-        local function waitForCurrency()
-        while not (Window and Window.Holder) do
-            task.wait(0.2)
-        end
-        
-        local gold, gems = 0, 0
-        repeat
-            task.wait(0.1)
-            gold, gems = getCurrencyValues()
-        until gold > 0 or gems > 0
-    end
-    
-    local function claimAllQuests()
-        while getgenv().ClaimQuestEnabled do
-            for i, quest in ipairs(QuestList) do
-                if not getgenv().ClaimQuestEnabled then break end
-                pcall(function() SafeInvoke(GET, "Functions", "Quest", quest.name, quest.category) end)
-                task.wait(0.1 + math.random()*0.03 + getgenv().ClaimDelay)
-            end
-        end
-        getgenv().ClaimQuestRunning = false
-    end
-    
-    local function claimAllAchievements()
-                pcall(function()
-            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-            GET:InvokeServer("S_Achievements", "Category", 5)
-        end)
-        task.wait(0.3)
-        
-        for id = 1, 71 do
-            if not getgenv().ClaimAchievementEnabled then break end
-            pcall(function() SafeInvoke(GET, "S_Achievements", "Claim", id) end)
-            task.wait(0.1 + math.random()*0.03 + getgenv().ClaimDelay)
-        end
-        getgenv().ClaimAchievementEnabled = false
-        getgenv().ClaimAchievementRunning = false
-        pcall(function()
-            if Options and Options.ClaimAchievementToggle then
-                Options.ClaimAchievementToggle:SetValue(false)
-            end
-        end)
-    end
-    
-    AutoClaimGroup:AddToggle("ClaimQuestToggle", {
-        Text = "Claim Quest",
-        Default = false,
-        Callback = function(v)
-            getgenv().ClaimQuestEnabled = v
-            if v and not getgenv().ClaimQuestRunning then
-                task.spawn(function()
-                    task.wait(2)
-                    waitForCurrency()
+
+        AutoClaimGroup:AddToggle("ClaimQuestToggle", {
+            Text = "Claim Quest",
+            Default = false,
+            Callback = function(v)
+                getgenv().ClaimQuestEnabled = v
+
+                if v and not getgenv().ClaimQuestRunning then
                     getgenv().ClaimQuestRunning = true
-                    claimAllQuests()
-                end)
+                    task.spawn(function()
+                        task.wait(0.5)
+                        claimAllQuests()
+                    end)
+                end
             end
-        end
-    })
-    
-    AutoClaimGroup:AddToggle("ClaimAchievementToggle", {
-        Text = "Claim Achievement",
-        Default = false,
-        Callback = function(v)
-            getgenv().ClaimAchievementEnabled = v
-            if v and not getgenv().ClaimAchievementRunning then
-                task.spawn(function()
-                    task.wait(2)
-                    waitForCurrency()
+        })
+
+        AutoClaimGroup:AddToggle("ClaimAchievementToggle", {
+            Text = "Claim Achievement",
+            Default = false,
+            Callback = function(v)
+                getgenv().ClaimAchievementEnabled = v
+
+                if v and not getgenv().ClaimAchievementRunning then
                     getgenv().ClaimAchievementRunning = true
-                    claimAllAchievements()
-                end)
+                    task.spawn(function()
+                        -- Let the quest pass start first when both toggles are enabled.
+                        task.wait(2)
+                        claimAllAchievements()
+                    end)
+                end
             end
-        end
-    })
-    
-    AutoClaimGroup:AddSlider("ClaimDelaySlider", {
-        Text = "Claim Delay (sec)",
-        Default = 0,
-        Min = 0,
-        Max = 60,
-        Rounding = 1,
-        Compact = false,
-        Callback = function(v)
-            getgenv().ClaimDelay = v
-        end
-    })
+        })
+
+        AutoClaimGroup:AddSlider("ClaimDelaySlider", {
+            Text = "Claim Delay (sec)",
+            Default = 0,
+            Min = 0,
+            Max = 60,
+            Rounding = 1,
+            Compact = false,
+            Callback = function(v)
+                getgenv().ClaimDelay = v
+            end
+        })
+    end)()
 end
+
 do
     local DETECTED_WEAPON = "Unknown"
     local detectionComplete = false
@@ -9307,34 +10255,15 @@ if IsIngameLobby() and Tabs.AutoFarm then
                     -- removed forced max graphics
                 end)
             end
-
-                        if v["Disable Text DMG"] then
-                for i = 1, 5 do
-                    pcall(function()
-                        local args = {
-                            "Functions",
-                            "Settings",
-                            "Damage_Indicator",
-                            "Off"
-                        }
-                        game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET"):InvokeServer(unpack(args))
-                    end)
-                    task.wait(0.1)
-                end
-            else
-                for i = 1, 5 do
-                    pcall(function()
-                        local args = {
-                            "Functions",
-                            "Settings",
-                            "Damage_Indicator",
-                            "On"
-                        }
-                        game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET"):InvokeServer(unpack(args))
-                    end)
-                    task.wait(0.1)
-                end
-            end
+            local damageIndicatorValue = v["Disable Text DMG"] and "Off" or "On"
+            pcall(function()
+                GET:InvokeServer(
+                    "Functions",
+                    "Settings",
+                    "Damage_Indicator",
+                    damageIndicatorValue
+                )
+            end)
         end
     })
 
@@ -9650,8 +10579,6 @@ if Tabs.AutoFarm then
                 G.FarmStartTime = tick()
                 PendingFarmStart = false
                 CurrentEntry = nil
-                LastAttackTime = tick()
-                
                 if not FarmConn then
                     CreateFarmLoop()
                 end
@@ -9863,32 +10790,7 @@ if Tabs.AutoFarm then
         end
     })
 
-    task.spawn(function()
-        while true do
-            task.wait(0.1)
-            pcall(function()
-                local G = getgenv()
-                if G.AutoFarmBlade and not G.Farm then
-                    G.Farm = true
-                    G.FarmStartTime = tick()
-                    CurrentEntry = nil
-                    LastAttackTime = tick()
-                    if not FarmConn then
-                        CreateFarmLoop()
-                    end
-                end
-                if G.AutoThunderSpear and not G.SpearFarm then
-                    G.SpearFarm = true
-                    G.FarmStartTime = tick()
-                    SpearCurrentEntry = nil
-                    LastSpearAttackTime = tick()
-                    if not SpearFarmConn then
-                        CreateSpearFarmLoop()
-                    end
-                end
-            end)
-        end
-    end)
+    -- Duplicate 0.1s farm-state watcher removed; the unified watcher below handles start/stop.
 -- ===== Return to Town Central after X Missions =====
 local MissionReturnGroup = Tabs.AutoFarm:AddRightGroupbox("Return to Town Central")
 
@@ -10472,7 +11374,9 @@ local attackTitanSpawnTime = nil
 
 local ActiveTitans = {}
 local LastScan = 0
-local SCAN_RATE = 0.03
+local MissionRemoteConfig =
+    (CONFIG and CONFIG.Mission and CONFIG.Mission.RemoteControl) or {}
+local SCAN_RATE = math.max(0.05, tonumber(MissionRemoteConfig.BladeScanRate) or 0.12)
 local NapeCache = setmetatable({}, {__mode = "k"})
 local OriginalHitSizes = setmetatable({}, {__mode = "k"})  -- part -> original Size
 
@@ -10936,12 +11840,10 @@ Player.CharacterAdded:Connect(OnSpawn)
 
 local FarmConn = nil
 local SpearFarmConn = nil
-local FARM_ATTACK_INTERVAL = 0.05
-local LastAttackTime = 0
 
 local waveWaiting = false
 local waveProgressCache = {current = nil, max = nil, text = nil, time = 0}
-local WAVE_CACHE_DURATION = 0.05
+local WAVE_CACHE_DURATION = 0.25
 
 local function getWaveProgress()
     local now = tick()
@@ -11082,88 +11984,85 @@ local function GetTargets(limit)
     return result
 end
 
-local function AttackAllTitans()
-    if #ActiveTitans == 0 then return end
-    if not isObjectivesActiveForCore() then return end
-    if NeedReload() then return end
+-- ============================================================
+-- EXACT WORKING 9-TITAN WORKER
+--
+-- Mirrors the standalone test that successfully registered 9 Titans:
+-- one Slash followed immediately by up to 9 Hitboxes/Register calls.
+-- The whole command repeats every 0.5 seconds.
+-- ============================================================
 
-    local G = getgenv()
-    local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
-    local safe = elapsed >= (G.SafetyTime or 60)
-    local killHits = G.KillHits or 9
+task.spawn(function()
+    local INTERVAL = 0.5
+    local MAX_TARGETS = 9
 
-    if safe then
-        SafeFire(POST, "Attacks", "Slash", true)
-        local targets = GetTargets(killHits)
+    local function getExactNineTargets()
+        local Titans = workspace:FindFirstChild("Titans")
+        if not Titans then
+            return {}
+        end
+
+        local targets = {}
+
+        for _, titan in ipairs(Titans:GetChildren()) do
+            if titan:IsA("Model") then
+                local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
+
+                if humanoid and humanoid.Health > 0 then
+                    local hitboxes = titan:FindFirstChild("Hitboxes")
+                    local hit = hitboxes and hitboxes:FindFirstChild("Hit")
+                    local nape = hit and hit:FindFirstChild("Nape")
+
+                    if nape and nape:IsA("BasePart") and nape.Parent then
+                        targets[#targets + 1] = nape
+
+                        if #targets >= MAX_TARGETS then
+                            break
+                        end
+                    end
+                end
+            end
+        end
+
+        return targets
+    end
+
+    local function hitExactNineOnce()
+        local targets = getExactNineTargets()
+
+        if #targets == 0 then
+            return
+        end
+
+        POST:FireServer(
+            "Attacks",
+            "Slash",
+            true
+        )
+
         for i = 1, #targets do
-            local entry = targets[i]
-            local nape = entry.nape
+            local nape = targets[i]
+
             if nape and nape.Parent then
-                SafeFire(POST, "Hitboxes", "Register", nape, 99999, 0)
+                POST:FireServer(
+                    "Hitboxes",
+                    "Register",
+                    nape,
+                    99999,
+                    0
+                )
             end
         end
-        return
     end
 
-    if isShiganshinaBreachMission and not protectHQCompleted then
-        SafeFire(POST, "Attacks", "Slash", true)
-        local targets = GetTargets(killHits)
-        for i = 1, #targets do
-            local entry = targets[i]
-            local nape = entry.nape
-            if nape and nape.Parent then
-                SafeFire(POST, "Hitboxes", "Register", nape, 99999, 0)
-            end
+    while true do
+        if getgenv().AutoFarmBlade and not IsRewardsUIVisible() then
+            hitExactNineOnce()
         end
-        return
+
+        task.wait(INTERVAL)
     end
-
-    local currentWave, maxWave = getWaveProgress()
-    if currentWave and maxWave and currentWave < maxWave then
-        local nearComplete = (currentWave >= maxWave - 2)
-        if nearComplete then
-            if elapsed < (G.SafetyTime or 60) then
-                if not waveWaiting then waveWaiting = true end
-                return
-            else
-                if waveWaiting then waveWaiting = false end
-            end
-        else
-            waveWaiting = false
-        end
-    elseif currentWave and currentWave == maxWave then
-        waveWaiting = false
-    elseif not currentWave then
-        waveWaiting = false
-    end
-
-    local slayVisible = isSlayObjectiveVisible()
-    local stopAt = G.StopAtTitansLeft or 1
-    local targets = GetTargets(killHits)
-
-    if not slayVisible then
-        SafeFire(POST, "Attacks", "Slash", true)
-        for i = 1, #targets do
-            local entry = targets[i]
-            local nape = entry.nape
-            if nape and nape.Parent then
-                SafeFire(POST, "Hitboxes", "Register", nape, 99999, 0)
-            end
-        end
-        return
-    end
-
-    if not safe and #ActiveTitans <= stopAt then return end
-
-    SafeFire(POST, "Attacks", "Slash", true)
-    for i = 1, #targets do
-        local entry = targets[i]
-        local nape = entry.nape
-        if nape and nape.Parent then
-            SafeFire(POST, "Hitboxes", "Register", nape, 99999, 0)
-        end
-    end
-end
+end)
 
 local function FarmUpdate()
     pcall(function()
@@ -11241,6 +12140,7 @@ local function FarmUpdate()
             -- Keep Titan state refreshed for the rest of the script.
             -- No Movement itself never follows any Titan.
             ScanTitans()
+
             return
         end
 
@@ -11298,12 +12198,6 @@ local function FarmUpdate()
         else
             MoveSmooth(hrp, tp, lookDir)
         end
-
-        local now = tick()
-        if now - LastAttackTime >= FARM_ATTACK_INTERVAL then
-            LastAttackTime = now
-            AttackAllTitans()
-        end
     end)
 end
 
@@ -11317,7 +12211,7 @@ end
 
 local SpearCurrentEntry = nil
 local LastSpearAttackTime = 0
-local SPEAR_ATTACK_INTERVAL = 0.1
+local SPEAR_ATTACK_INTERVAL = math.max(0.15, tonumber(MissionRemoteConfig.SpearAttackInterval) or 0.30)
 local CurrentFirePower = 8
 local EXPLODE_RADIUS = 0.14
 -- Hit Distance also boosts spear AOE when enabled
@@ -11400,17 +12294,96 @@ local function FireSpear()
     end)
 end
 
+local spearLastExplodeAt = setmetatable({}, {__mode = "k"})
+local spearAOEBusy = false
+
+local SPEAR_MAX_TARGETS = math.clamp(
+    tonumber(MissionRemoteConfig.SpearMaxTargets) or 9,
+    1,
+    12
+)
+
+local SPEAR_HIT_SPACING = math.max(
+    0.015,
+    tonumber(MissionRemoteConfig.SpearHitSpacing) or 0.03
+)
+
+local SPEAR_REHIT_DELAY = math.max(
+    0.25,
+    tonumber(MissionRemoteConfig.SpearRehitDelay) or 0.60
+)
+
 local function ThunderAOEAttack()
-    local activeList = ActiveTitans
-    for i = 1, #activeList do
-        local entry = activeList[i]
-        local nape = entry.nape
-        if nape then
-            pcall(function()
-                POST:FireServer("Spears", "S_Explode", Vector3.new(nape.Position.X, nape.Position.Y, nape.Position.Z), getExplodeRadius())
-            end)
+    if spearAOEBusy then return false end
+
+    local now = tick()
+    local targets = {}
+
+    for i = 1, #ActiveTitans do
+        local entry = ActiveTitans[i]
+        local titan = entry and entry.titan
+        local nape = entry and entry.nape
+
+        if titan and nape and nape.Parent and IsTitanAlive(titan) then
+            local last = spearLastExplodeAt[titan] or 0
+
+            if (now - last) >= SPEAR_REHIT_DELAY then
+                targets[#targets + 1] = entry
+
+                if #targets >= SPEAR_MAX_TARGETS then
+                    break
+                end
+            end
         end
     end
+
+    if #targets == 0 then
+        return false
+    end
+
+    spearAOEBusy = true
+
+    -- Spend/fire one spear only when at least one explosion is actually
+    -- eligible to be sent. This avoids wasting S_Fire remotes while every
+    -- Titan is still inside its re-hit cooldown.
+    FireSpear()
+
+    task.spawn(function()
+        pcall(function()
+            for i = 1, #targets do
+                if not getgenv().AutoThunderSpear or IsRewardsUIVisible() then
+                    break
+                end
+
+                local entry = targets[i]
+                local titan = entry and entry.titan
+                local nape = entry and entry.nape
+
+                if titan and nape and nape.Parent and IsTitanAlive(titan) then
+                    POST:FireServer(
+                        "Spears",
+                        "S_Explode",
+                        Vector3.new(
+                            nape.Position.X,
+                            nape.Position.Y,
+                            nape.Position.Z
+                        ),
+                        getExplodeRadius()
+                    )
+
+                    spearLastExplodeAt[titan] = tick()
+                end
+
+                if i < #targets then
+                    task.wait(SPEAR_HIT_SPACING)
+                end
+            end
+        end)
+
+        spearAOEBusy = false
+    end)
+
+    return true
 end
 
 local function ThunderAttackAllTitans()
@@ -11426,13 +12399,11 @@ local function ThunderAttackAllTitans()
     local safe = elapsed >= (G.SafetyTime or 60)
 
     if safe then
-        FireSpear()
         ThunderAOEAttack()
         return
     end
 
     if isShiganshinaBreachMission and not protectHQCompleted then
-        FireSpear()
         ThunderAOEAttack()
         return
     end
@@ -11463,7 +12434,6 @@ local function ThunderAttackAllTitans()
     local slayVisible = isSlayObjectiveVisible()
     
     if not slayVisible then
-        FireSpear()
         ThunderAOEAttack()
         return
     end
@@ -11473,7 +12443,6 @@ local function ThunderAttackAllTitans()
         return
     end
 
-    FireSpear()
     ThunderAOEAttack()
 end
 
@@ -11583,7 +12552,6 @@ task.spawn(function()
                 G.Farm = true
                 G.FarmStartTime = tick()
                 CurrentEntry = nil
-                LastAttackTime = tick()
                 if not FarmConn then
                     CreateFarmLoop()
                 end
@@ -11663,7 +12631,6 @@ task.spawn(function()
                     G.Farm = true
                     G.FarmStartTime = tick()
                     CurrentEntry = nil
-                    LastAttackTime = 0
                     healed = true
                 end
 
@@ -12289,17 +13256,19 @@ task.spawn(function()
     -- This version reacts/polls instead of sleeping for fixed times.
     -- ============================================================
 
-    local COOLDOWN_REFILL = 0.25
-    local COOLDOWN_R_PRESS = 0.15
+    local COOLDOWN_REFILL = 0.45
+    local COOLDOWN_R_PRESS = 0.30
 
-    local REFILL_RETRY_DELAY = 0.08
-    local REFILL_TIMEOUT = 1.10
+    local REFILL_RETRY_DELAY = math.max(0.10, tonumber(MissionRemoteConfig.RefillRetryDelay) or 0.20)
+    local REFILL_TIMEOUT = 1.40
+    local REFILL_MAX_ATTEMPTS = math.max(1, math.floor(tonumber(MissionRemoteConfig.RefillMaxAttempts) or 5))
 
-    local RELOAD_RETRY_DELAY = 0.035
-    local RELOAD_TIMEOUT = 1.25
+    local RELOAD_RETRY_DELAY = math.max(0.10, tonumber(MissionRemoteConfig.ReloadRetryDelay) or 0.18)
+    local RELOAD_TIMEOUT = 1.50
+    local RELOAD_MAX_ATTEMPTS = math.max(1, math.floor(tonumber(MissionRemoteConfig.ReloadMaxAttempts) or 6))
 
-    local LOOP_DELAY = 0.03
-    local CACHE_REFRESH_INTERVAL = 5
+    local LOOP_DELAY = 0.08
+    local CACHE_REFRESH_INTERVAL = 8
 
     local lastRefillTime = 0
     local lastRPressTime = 0
@@ -12318,25 +13287,29 @@ task.spawn(function()
         local newCache = {}
         local seen = {}
 
-        pcall(function()
-            local roots = {
-                workspace:FindFirstChild("Unclimbable"),
-                workspace:FindFirstChild("Climbable"),
-                workspace,
-            }
+        local function scanRoot(root)
+            if not root then return end
 
-            for _, root in ipairs(roots) do
-                if root then
-                    for _, obj in ipairs(root:GetDescendants()) do
-                        if obj.Name == "Refill"
-                            and obj:IsA("BasePart")
-                            and not seen[obj] then
+            for _, obj in ipairs(root:GetDescendants()) do
+                if obj.Name == "Refill"
+                    and obj:IsA("BasePart")
+                    and not seen[obj] then
 
-                            seen[obj] = true
-                            table.insert(newCache, obj)
-                        end
-                    end
+                    seen[obj] = true
+                    newCache[#newCache + 1] = obj
                 end
+            end
+        end
+
+        pcall(function()
+            -- Normal maps keep refill parts under these two roots.
+            -- Avoid scanning the entire workspace every few seconds.
+            scanRoot(workspace:FindFirstChild("Unclimbable"))
+            scanRoot(workspace:FindFirstChild("Climbable"))
+
+            -- Rare-map fallback only when the normal roots yielded nothing.
+            if #newCache == 0 then
+                scanRoot(workspace)
             end
         end)
 
@@ -12493,10 +13466,13 @@ task.spawn(function()
 
         local started = tick()
         local success = false
+        local attempts = 0
 
-        -- Send immediately, then poll the set counter. Repeat only while
-        -- the server still reports 0 sets.
+        -- Send immediately, then poll the set counter. Hard-cap retries so
+        -- a delayed UI/server response cannot flood the remote.
         repeat
+            attempts = attempts + 1
+
             pcall(function()
                 POST:FireServer(
                     "Attacks",
@@ -12513,6 +13489,7 @@ task.spawn(function()
             end
 
         until not getgenv().AutoReloadBlade
+            or attempts >= REFILL_MAX_ATTEMPTS
             or (tick() - started) >= REFILL_TIMEOUT
 
         getgenv().IsRefilling = false
@@ -12561,15 +13538,18 @@ task.spawn(function()
 
         local started = tick()
         local success = false
+        local attempts = 0
 
-        -- No old 0.3s startup delay.
-        -- Send the known reload remote immediately and stop as soon as
-        -- the blade becomes visible again.
+        -- Send the known reload remote with bounded retries. This is much
+        -- lighter than the old ~0.035s spam loop and gives the server time
+        -- to apply each reload before another request is sent.
         repeat
             if not NeedReload() then
                 success = true
                 break
             end
+
+            attempts = attempts + 1
 
             pcall(function()
                 GET:InvokeServer(
@@ -12581,6 +13561,7 @@ task.spawn(function()
             task.wait(RELOAD_RETRY_DELAY)
 
         until not getgenv().AutoReloadBlade
+            or attempts >= RELOAD_MAX_ATTEMPTS
             or (tick() - started) >= RELOAD_TIMEOUT
 
         if not NeedReload() then
@@ -12624,280 +13605,340 @@ task.spawn(function()
     end
 end)
 if Tabs.Webhook then
-    local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Discord Webhook")
+    -- Separate function scope prevents Luau's 200-local-register limit.
+    (function()
+        local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Discord Webhook")
     
-    local webhookURL = ""
-    local webhookEnabled = false
-    local hasSentWebhook = false
-    local lastMissionState = ""
-    local webhookMode = "All Data"
-    local webhookPingMode = "None"
+        local webhookURL = ""
+        local webhookEnabled = false
+        local hasSentWebhook = false
+        local lastMissionState = ""
+        local webhookMode = "All Data"
+        local webhookPingMode = "None"
     
-    local gamesPlayed = 0
-    local gamesPlayedPath = "TownShip/games_played_" .. tostring(Player.UserId) .. ".txt"
+        local gamesPlayed = 0
+        local gamesPlayedPath = "TownShip/games_played_" .. tostring(Player.UserId) .. ".txt"
     
-    if isfile(gamesPlayedPath) then
-        gamesPlayed = tonumber(readfile(gamesPlayedPath)) or 0
-    else
-        writefile(gamesPlayedPath, "0")
-    end
-    
-    local function incrementGamesPlayed()
-        gamesPlayed = gamesPlayed + 1
-        writefile(gamesPlayedPath, tostring(gamesPlayed))
-    end
-    
-    local ItemsModule = nil
-    local IconToNameMap = {}
-    
-    local function loadItemsModule()
-        local success, module = pcall(function()
-            return require(game:GetService("ReplicatedStorage").Modules.Storage.Items)
-        end)
-        if success and type(module) == "table" then
-            ItemsModule = module
-            for itemName, itemData in pairs(module) do
-                if type(itemData) == "table" and itemData.Image then
-                    local img = tostring(itemData.Image)
-                    local assetId = img:match("rbxassetid://(%d+)") or img:match("^(%d+)$")
-                    if assetId then
-                        IconToNameMap[assetId] = itemName
-                    end
-                end
-            end
-            return true
+        if isfile(gamesPlayedPath) then
+            gamesPlayed = tonumber(readfile(gamesPlayedPath)) or 0
+        else
+            writefile(gamesPlayedPath, "0")
         end
-        return false
-    end
     
-    task.spawn(function()
-        task.wait(1)
-        loadItemsModule()
-    end)
+        local function incrementGamesPlayed()
+            gamesPlayed = gamesPlayed + 1
+            writefile(gamesPlayedPath, tostring(gamesPlayed))
+        end
     
-    local function findUIElements()
-        local player = game:GetService("Players").LocalPlayer
-        local playerGui = player:FindFirstChild("PlayerGui")
-        if not playerGui then return nil, nil end
-        local interface = playerGui:FindFirstChild("Interface")
-        if not interface then return nil, nil end
-        local rewards = interface:FindFirstChild("Rewards")
-        if not rewards then return nil, nil end
-        local main = rewards:FindFirstChild("Main")
-        if not main then return nil, nil end
-        local info = main:FindFirstChild("Info")
-        if not info then return nil, nil end
-        local mainInfo = info:FindFirstChild("Main")
-        if not mainInfo then return nil, nil end
-        local statsFrame = mainInfo:FindFirstChild("Stats")
-        local itemsFrame = mainInfo:FindFirstChild("Items")
-        return statsFrame, itemsFrame
-    end
+        local ItemsModule = nil
+        local IconToNameMap = {}
     
-    local function waitForServerData(maxWait)
-        local start = tick()
-        local lastData = nil
-        local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-        while tick() - start < maxWait do
-            local success, data = pcall(function()
-                return GET:InvokeServer("Data", "Copy")
+        local function loadItemsModule()
+            local success, module = pcall(function()
+                return require(game:GetService("ReplicatedStorage").Modules.Storage.Items)
             end)
-            if success and data and data.Slots then
-                local slot = data.Slots[data.Current_Slot or "A"]
-                if slot and slot.Currency and slot.Progression then
-                    if (slot.Currency.Gold or 0) > 0 or (slot.Currency.Gems or 0) > 0 or (slot.Progression.Level or 0) > 0 then
-                        lastData = data
-                        break
-                    end
-                end
-                lastData = data
-            end
-            task.wait(0.15)
-        end
-        return lastData
-    end
-    
-    local function waitForUIElements(maxWait)
-        local start = tick()
-        local statsFrame, itemsFrame = nil, nil
-        while tick() - start < maxWait do
-            statsFrame, itemsFrame = findUIElements()
-            local hasStat = false
-            local hasItem = false
-            if statsFrame then
-                for _, v in ipairs(statsFrame:GetChildren()) do
-                    if v:IsA("Frame") and v:FindFirstChild("Amount") then
-                        local amount = v.Amount.Text
-                        if amount and amount ~= "0" and amount ~= "" then
-                            hasStat = true
-                            break
+            if success and type(module) == "table" then
+                ItemsModule = module
+                for itemName, itemData in pairs(module) do
+                    if type(itemData) == "table" and itemData.Image then
+                        local img = tostring(itemData.Image)
+                        local assetId = img:match("rbxassetid://(%d+)") or img:match("^(%d+)$")
+                        if assetId then
+                            IconToNameMap[assetId] = itemName
                         end
                     end
                 end
+                return true
             end
-            if itemsFrame then
-                for _, v in ipairs(itemsFrame:GetChildren()) do
-                    if v:IsA("Frame") and v:FindFirstChild("Main") then
-                        local inner = v.Main:FindFirstChild("Inner")
-                        if inner and inner.Quantity and inner.Quantity.Text ~= "0" and inner.Quantity.Text ~= "" then
-                            hasItem = true
-                            break
-                        end
-                    end
-                end
-            end
-            if hasStat or hasItem then break end
-            task.wait(0.2)
+            return false
         end
-        return findUIElements()
-    end
     
-    -- ===== ฟังก์ชันจัดรูปแบบตัวเลข (ตัดทศนิยม) =====
-    local function formatNumberWithComma(num)
-        if type(num) == "string" then
-            local clean = num:gsub("[^%d.]", "")
-            num = tonumber(clean) or 0
-        end
-        if type(num) ~= "number" then return tostring(num) end
-        num = math.floor(num)  -- ตัดทศนิยมทิ้ง
-        local str = tostring(num)
-        local formatted = ""
-        local len = #str
-        for i = 1, len do
-            formatted = formatted .. str:sub(i, i)
-            if (len - i) % 3 == 0 and i < len then
-                formatted = formatted .. ","
-            end
-        end
-        return formatted
-    end
-    
-    -- ===== ฟังก์ชันดึงข้อมูล Reward แบบเรียลไทม์ =====
-    local function getRealTimeRewardData()
-        local success, result = pcall(function()
-            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-            return GET:InvokeServer("S_Rewards", "Get")
-        end)
-        if not success or not result then return nil end
-        if type(result) == "table" then
-            if result.Obtained or result.Stats then
-                return result
-            end
-            if #result > 0 and type(result[1]) == "table" then
-                return result[1]
-            end
-        end
-        return nil
-    end
-
-    -- ===== Mission Timer (exact Rewards UI value) =====
-    local function getMissionTime()
-        local ok, value = pcall(function()
-            return game:GetService("Players")
-                .LocalPlayer
-                .PlayerGui
-                .Interface
-                .Rewards
-                .Main
-                .Info
-                .Main
-                .Stats
-                .Time_Taken
-                .Amount
-                .Text
-        end)
-
-        if ok and value and value ~= "" then
-            return tostring(value)
-        end
-
-        return "Unknown"
-    end
-
-    -- Forward declarations because the webhook functions use these helpers
-    -- before their implementations appear later in the file.
-    local getAllRewards
-    local getCurrentMissionRewardsText
-    
-    -- ===== ฟังก์ชันส่ง Reward Webhook =====
-    local function sendRewardWebhook()
-        if webhookURL == "" then return end
-        incrementGamesPlayed()
-        
-        if not ItemsModule or #IconToNameMap == 0 then
+        task.spawn(function()
+            task.wait(1)
             loadItemsModule()
-        end
-        
-        local player = game:GetService("Players").LocalPlayer
-        local executor = identifyexecutor and identifyexecutor() or "Unknown"
-        
-        local totalData = { Level = 1, Gold = 0, Gems = 0 }
-        pcall(function()
-            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-            local mapData = GET:InvokeServer("Data", "Copy")
-            local slotIndex = player:GetAttribute("Slot") or "A"
-            if mapData and mapData.Slots and mapData.Slots[slotIndex] then
-                local slot = mapData.Slots[slotIndex]
-                if slot.Currency then
-                    totalData.Gold = slot.Currency.Gold or 0
-                    totalData.Gems = slot.Currency.Gems or 0
-                end
-                if slot.Progression then
-                    totalData.Level = slot.Progression.Level or 1
-                end
-            end
         end)
-        
-        local rewardData = getRealTimeRewardData()
-        
-        if not rewardData then
-            -- Fallback: ใช้ข้อมูลจาก UI
-            local statsFrame, _ = findUIElements()
-            local stats = {}
-            if statsFrame then
-                for _, v in ipairs(statsFrame:GetChildren()) do
-                    if v:IsA("Frame") and v:FindFirstChild("Stat") and v:FindFirstChild("Amount") then
-                        local statName = string.gsub(v.Name, "_", " ")
-                        stats[statName] = v.Amount.Text
+    
+        local function findUIElements()
+            local player = game:GetService("Players").LocalPlayer
+            local playerGui = player:FindFirstChild("PlayerGui")
+            if not playerGui then return nil, nil end
+            local interface = playerGui:FindFirstChild("Interface")
+            if not interface then return nil, nil end
+            local rewards = interface:FindFirstChild("Rewards")
+            if not rewards then return nil, nil end
+            local main = rewards:FindFirstChild("Main")
+            if not main then return nil, nil end
+            local info = main:FindFirstChild("Info")
+            if not info then return nil, nil end
+            local mainInfo = info:FindFirstChild("Main")
+            if not mainInfo then return nil, nil end
+            local statsFrame = mainInfo:FindFirstChild("Stats")
+            local itemsFrame = mainInfo:FindFirstChild("Items")
+            return statsFrame, itemsFrame
+        end
+    
+        local function waitForServerData(maxWait)
+            local start = tick()
+            local lastData = nil
+            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+            while tick() - start < maxWait do
+                local success, data = pcall(function()
+                    return GET:InvokeServer("Data", "Copy")
+                end)
+                if success and data and data.Slots then
+                    local slot = data.Slots[data.Current_Slot or "A"]
+                    if slot and slot.Currency and slot.Progression then
+                        if (slot.Currency.Gold or 0) > 0 or (slot.Currency.Gems or 0) > 0 or (slot.Progression.Level or 0) > 0 then
+                            lastData = data
+                            break
+                        end
+                    end
+                    lastData = data
+                end
+                task.wait(0.15)
+            end
+            return lastData
+        end
+    
+        local function waitForUIElements(maxWait)
+            local start = tick()
+            local statsFrame, itemsFrame = nil, nil
+            while tick() - start < maxWait do
+                statsFrame, itemsFrame = findUIElements()
+                local hasStat = false
+                local hasItem = false
+                if statsFrame then
+                    for _, v in ipairs(statsFrame:GetChildren()) do
+                        if v:IsA("Frame") and v:FindFirstChild("Amount") then
+                            local amount = v.Amount.Text
+                            if amount and amount ~= "0" and amount ~= "" then
+                                hasStat = true
+                                break
+                            end
+                        end
                     end
                 end
+                if itemsFrame then
+                    for _, v in ipairs(itemsFrame:GetChildren()) do
+                        if v:IsA("Frame") and v:FindFirstChild("Main") then
+                            local inner = v.Main:FindFirstChild("Inner")
+                            if inner and inner.Quantity and inner.Quantity.Text ~= "0" and inner.Quantity.Text ~= "" then
+                                hasItem = true
+                                break
+                            end
+                        end
+                    end
+                end
+                if hasStat or hasItem then break end
+                task.wait(0.2)
             end
+            return findUIElements()
+        end
+    
+        -- ===== ฟังก์ชันจัดรูปแบบตัวเลข (ตัดทศนิยม) =====
+        local function formatNumberWithComma(num)
+            if type(num) == "string" then
+                local clean = num:gsub("[^%d.]", "")
+                num = tonumber(clean) or 0
+            end
+            if type(num) ~= "number" then return tostring(num) end
+            num = math.floor(num)  -- ตัดทศนิยมทิ้ง
+            local str = tostring(num)
+            local formatted = ""
+            local len = #str
+            for i = 1, len do
+                formatted = formatted .. str:sub(i, i)
+                if (len - i) % 3 == 0 and i < len then
+                    formatted = formatted .. ","
+                end
+            end
+            return formatted
+        end
+    
+        -- ===== ฟังก์ชันดึงข้อมูล Reward แบบเรียลไทม์ =====
+        local function getRealTimeRewardData()
+            local success, result = pcall(function()
+                local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                return GET:InvokeServer("S_Rewards", "Get")
+            end)
+            if not success or not result then return nil end
+            if type(result) == "table" then
+                if result.Obtained or result.Stats then
+                    return result
+                end
+                if #result > 0 and type(result[1]) == "table" then
+                    return result[1]
+                end
+            end
+            return nil
+        end
+
+        -- ===== Mission Timer (exact Rewards UI value) =====
+        local function getMissionTime()
+            local ok, value = pcall(function()
+                return game:GetService("Players")
+                    .LocalPlayer
+                    .PlayerGui
+                    .Interface
+                    .Rewards
+                    .Main
+                    .Info
+                    .Main
+                    .Stats
+                    .Time_Taken
+                    .Amount
+                    .Text
+            end)
+
+            if ok and value and value ~= "" then
+                return tostring(value)
+            end
+
+            return "Unknown"
+        end
+
+        -- Forward declarations because the webhook functions use these helpers
+        -- before their implementations appear later in the file.
+        local getAllRewards
+        local getCurrentMissionRewardsText
+    
+        -- ===== ฟังก์ชันส่ง Reward Webhook =====
+        local function sendRewardWebhook()
+            if webhookURL == "" then return end
+            incrementGamesPlayed()
+        
+            if not ItemsModule or #IconToNameMap == 0 then
+                loadItemsModule()
+            end
+        
+            local player = game:GetService("Players").LocalPlayer
+            local executor = identifyexecutor and identifyexecutor() or "Unknown"
+        
+            local totalData = { Level = 1, Gold = 0, Gems = 0 }
+            pcall(function()
+                local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                local mapData = GET:InvokeServer("Data", "Copy")
+                local slotIndex = player:GetAttribute("Slot") or "A"
+                if mapData and mapData.Slots and mapData.Slots[slotIndex] then
+                    local slot = mapData.Slots[slotIndex]
+                    if slot.Currency then
+                        totalData.Gold = slot.Currency.Gold or 0
+                        totalData.Gems = slot.Currency.Gems or 0
+                    end
+                    if slot.Progression then
+                        totalData.Level = slot.Progression.Level or 1
+                    end
+                end
+            end)
+        
+            local rewardData = getRealTimeRewardData()
+        
+            if not rewardData then
+                -- Fallback: ใช้ข้อมูลจาก UI
+                local statsFrame, _ = findUIElements()
+                local stats = {}
+                if statsFrame then
+                    for _, v in ipairs(statsFrame:GetChildren()) do
+                        if v:IsA("Frame") and v:FindFirstChild("Stat") and v:FindFirstChild("Amount") then
+                            local statName = string.gsub(v.Name, "_", " ")
+                            stats[statName] = v.Amount.Text
+                        end
+                    end
+                end
             
-            local rewardsUI = getAllRewards()
-            local kills = stats["Kills"] or 0
-            local crits = stats["Crits"] or 0
-            local damage = stats["Damage"] or "0"
-            local damageNum = tonumber(damage:gsub("[^%d.]", "")) or 0
+                local rewardsUI = getAllRewards()
+                local kills = stats["Kills"] or 0
+                local crits = stats["Crits"] or 0
+                local damage = stats["Damage"] or "0"
+                local damageNum = tonumber(damage:gsub("[^%d.]", "")) or 0
+                local missionTimer = getMissionTime()
+                local currentMissionRewards = getCurrentMissionRewardsText(nil)
+            
+                local xp, gold, gems, shards = 0, 0, 0, 0
+                for _, item in ipairs(rewardsUI) do
+                    if item.name == "XP" then xp = tonumber(item.qty:match("%d+")) or 0 end
+                    if item.name == "Gold" then gold = tonumber(item.qty:match("%d+")) or 0 end
+                    if item.name == "Gems" then gems = tonumber(item.qty:match("%d+")) or 0 end
+                    if item.name == "Shards" then shards = tonumber(item.qty:match("%d+")) or 0 end
+                end
+            
+                local perksList = "None"
+                local isCompleted, isClaimed = true, true
+                local statusTitle = "COMPLETED ✅"
+                local color = 0x00ff00
+            
+                local pingContent = nil
+                if webhookPingMode == "Everyone" then
+                    pingContent = "@everyone"
+                elseif webhookPingMode == "Here" then
+                    pingContent = "@here"
+                end
+            
+                local payload = {
+                    content = pingContent,
+                    embeds = {{
+                        title = string.format("[%s] %s", statusTitle, player.Name),
+                        color = color,
+                        fields = {
+                            { name = "STATS", value = string.format("Mission Time: %s\nKills: %s\nCrits: %s\nDamage: %s", missionTimer, kills, crits, formatNumberWithComma(damageNum)), inline = false },
+                            { name = "REWARDS", value = string.format("XP: %s\nGold: %s\nGems: %s\nShards: %s", formatNumberWithComma(xp), formatNumberWithComma(gold), formatNumberWithComma(gems), formatNumberWithComma(shards)), inline = false },
+                            { name = "CURRENT MISSION REWARDS", value = currentMissionRewards, inline = false },
+                            { name = "PERKS", value = perksList, inline = false },
+                            { name = "INFO", value = string.format("User: %s\nExecutor: %s\nGames Played: %d\nGold: %s\nGems: %s", player.Name, executor, gamesPlayed, formatNumberWithComma(totalData.Gold), formatNumberWithComma(totalData.Gems)), inline = false }
+                        },
+                        footer = { text = "TownShip • " .. os.date("%Y-%m-%d %H:%M:%S") },
+                        timestamp = DateTime.now():ToIsoDate()
+                    }}
+                }
+                pcall(function()
+                    request({ Url = webhookURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = game:GetService("HttpService"):JSONEncode(payload) })
+                end)
+                return
+            end
+        
+            -- ===== ใช้ข้อมูลจาก S_Rewards Get =====
+            local kills = rewardData.Stats and rewardData.Stats.Kills or 0
+            local crits = rewardData.Stats and rewardData.Stats.Crits or 0
+            local damage = rewardData.Stats and rewardData.Stats.Damage or 0
             local missionTimer = getMissionTime()
-            local currentMissionRewards = getCurrentMissionRewardsText(nil)
-            
-            local xp, gold, gems, shards = 0, 0, 0, 0
-            for _, item in ipairs(rewardsUI) do
-                if item.name == "XP" then xp = tonumber(item.qty:match("%d+")) or 0 end
-                if item.name == "Gold" then gold = tonumber(item.qty:match("%d+")) or 0 end
-                if item.name == "Gems" then gems = tonumber(item.qty:match("%d+")) or 0 end
-                if item.name == "Shards" then shards = tonumber(item.qty:match("%d+")) or 0 end
-            end
-            
+            local currentMissionRewards = getCurrentMissionRewardsText(rewardData)
+        
+            local xp = rewardData.Obtained and rewardData.Obtained.XP or 0
+            local gold = rewardData.Obtained and rewardData.Obtained.Gold or 0
+            local gems = rewardData.Obtained and rewardData.Obtained.Gems or 0
+            local shards = rewardData.Obtained and rewardData.Obtained.Shards or 0
+        
             local perksList = "None"
-            local isCompleted, isClaimed = true, true
-            local statusTitle = "COMPLETED ✅"
-            local color = 0x00ff00
-            
+            if rewardData.Obtained and rewardData.Obtained.Perks and #rewardData.Obtained.Perks > 0 then
+                perksList = "• " .. table.concat(rewardData.Obtained.Perks, "\n• ")
+            end
+        
+            local isCompleted = rewardData.Completed or false
+            local isClaimed = rewardData.Claimed or false
+            local statusTitle = "IN PROGRESS"
+            local color = 0xffaa00
+            if isCompleted and isClaimed then
+                statusTitle = "COMPLETED ✅"
+                color = 0x00ff00
+            elseif isCompleted and not isClaimed then
+                statusTitle = "COMPLETED ⏳"
+                color = 0x00aaff
+            end
+        
             local pingContent = nil
             if webhookPingMode == "Everyone" then
                 pingContent = "@everyone"
             elseif webhookPingMode == "Here" then
                 pingContent = "@here"
             end
-            
+        
             local payload = {
                 content = pingContent,
                 embeds = {{
                     title = string.format("[%s] %s", statusTitle, player.Name),
                     color = color,
                     fields = {
-                        { name = "STATS", value = string.format("Mission Time: %s\nKills: %s\nCrits: %s\nDamage: %s", missionTimer, kills, crits, formatNumberWithComma(damageNum)), inline = false },
+                        { name = "STATS", value = string.format("Mission Time: %s\nKills: %s\nCrits: %s\nDamage: %s", missionTimer, kills, crits, formatNumberWithComma(damage)), inline = false },
                         { name = "REWARDS", value = string.format("XP: %s\nGold: %s\nGems: %s\nShards: %s", formatNumberWithComma(xp), formatNumberWithComma(gold), formatNumberWithComma(gems), formatNumberWithComma(shards)), inline = false },
                         { name = "CURRENT MISSION REWARDS", value = currentMissionRewards, inline = false },
                         { name = "PERKS", value = perksList, inline = false },
@@ -12907,488 +13948,432 @@ if Tabs.Webhook then
                     timestamp = DateTime.now():ToIsoDate()
                 }}
             }
+        
             pcall(function()
-                request({ Url = webhookURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = game:GetService("HttpService"):JSONEncode(payload) })
+                request({ 
+                    Url = webhookURL, 
+                    Method = "POST", 
+                    Headers = { ["Content-Type"] = "application/json" }, 
+                    Body = game:GetService("HttpService"):JSONEncode(payload) 
+                })
+                print("📤 Webhook sent successfully!")
             end)
-            return
         end
-        
-        -- ===== ใช้ข้อมูลจาก S_Rewards Get =====
-        local kills = rewardData.Stats and rewardData.Stats.Kills or 0
-        local crits = rewardData.Stats and rewardData.Stats.Crits or 0
-        local damage = rewardData.Stats and rewardData.Stats.Damage or 0
-        local missionTimer = getMissionTime()
-        local currentMissionRewards = getCurrentMissionRewardsText(rewardData)
-        
-        local xp = rewardData.Obtained and rewardData.Obtained.XP or 0
-        local gold = rewardData.Obtained and rewardData.Obtained.Gold or 0
-        local gems = rewardData.Obtained and rewardData.Obtained.Gems or 0
-        local shards = rewardData.Obtained and rewardData.Obtained.Shards or 0
-        
-        local perksList = "None"
-        if rewardData.Obtained and rewardData.Obtained.Perks and #rewardData.Obtained.Perks > 0 then
-            perksList = "• " .. table.concat(rewardData.Obtained.Perks, "\n• ")
-        end
-        
-        local isCompleted = rewardData.Completed or false
-        local isClaimed = rewardData.Claimed or false
-        local statusTitle = "IN PROGRESS"
-        local color = 0xffaa00
-        if isCompleted and isClaimed then
-            statusTitle = "COMPLETED ✅"
-            color = 0x00ff00
-        elseif isCompleted and not isClaimed then
-            statusTitle = "COMPLETED ⏳"
-            color = 0x00aaff
-        end
-        
-        local pingContent = nil
-        if webhookPingMode == "Everyone" then
-            pingContent = "@everyone"
-        elseif webhookPingMode == "Here" then
-            pingContent = "@here"
-        end
-        
-        local payload = {
-            content = pingContent,
-            embeds = {{
-                title = string.format("[%s] %s", statusTitle, player.Name),
-                color = color,
-                fields = {
-                    { name = "STATS", value = string.format("Mission Time: %s\nKills: %s\nCrits: %s\nDamage: %s", missionTimer, kills, crits, formatNumberWithComma(damage)), inline = false },
-                    { name = "REWARDS", value = string.format("XP: %s\nGold: %s\nGems: %s\nShards: %s", formatNumberWithComma(xp), formatNumberWithComma(gold), formatNumberWithComma(gems), formatNumberWithComma(shards)), inline = false },
-                    { name = "CURRENT MISSION REWARDS", value = currentMissionRewards, inline = false },
-                    { name = "PERKS", value = perksList, inline = false },
-                    { name = "INFO", value = string.format("User: %s\nExecutor: %s\nGames Played: %d\nGold: %s\nGems: %s", player.Name, executor, gamesPlayed, formatNumberWithComma(totalData.Gold), formatNumberWithComma(totalData.Gems)), inline = false }
-                },
-                footer = { text = "TownShip • " .. os.date("%Y-%m-%d %H:%M:%S") },
-                timestamp = DateTime.now():ToIsoDate()
-            }}
-        }
-        
-        pcall(function()
-            request({ 
-                Url = webhookURL, 
-                Method = "POST", 
-                Headers = { ["Content-Type"] = "application/json" }, 
-                Body = game:GetService("HttpService"):JSONEncode(payload) 
-            })
-            print("📤 Webhook sent successfully!")
-        end)
-    end
     
-    -- ===== ฟังก์ชัน getAllRewards (ใช้ในกรณี fallback) =====
-    getAllRewards = function()
-        local player = game:GetService("Players").LocalPlayer
-        local mainInfo = player.PlayerGui.Interface.Rewards.Main.Info.Main
-        local rewardsList = {}
+        -- ===== ฟังก์ชัน getAllRewards (ใช้ในกรณี fallback) =====
+        getAllRewards = function()
+            local player = game:GetService("Players").LocalPlayer
+            local mainInfo = player.PlayerGui.Interface.Rewards.Main.Info.Main
+            local rewardsList = {}
         
-        local function extractFromFrame(frame)
-            local qtyText = nil
-            local itemName = nil
-            local isRare = false
+            local function extractFromFrame(frame)
+                local qtyText = nil
+                local itemName = nil
+                local isRare = false
             
-            local mainObj = frame:FindFirstChild("Main")
-            local inner = mainObj and mainObj:FindFirstChild("Inner")
-            if inner then
-                local qtyObj = inner:FindFirstChild("Quantity")
-                if qtyObj and qtyObj:IsA("TextLabel") then
-                    qtyText = qtyObj.Text
-                    local num = tonumber(qtyText:match("%d+"))
-                    if num and num > 0 then
-                        local icon = inner:FindFirstChild("Icon")
-                        if icon and icon:IsA("ImageLabel") and icon.Image then
-                            local assetId = tostring(icon.Image):match("rbxassetid://(%d+)") or tostring(icon.Image):match("^(%d+)$")
-                            if assetId and IconToNameMap[assetId] then
-                                itemName = IconToNameMap[assetId]
-                            end
-                        end
-                        if not itemName then
-                            local title = inner:FindFirstChild("Title")
-                            if title and title:IsA("TextLabel") and title.Text ~= "" then
-                                itemName = title.Text
-                            else
-                                local nameObj = inner:FindFirstChild("Name")
-                                if nameObj and nameObj:IsA("TextLabel") and nameObj.Text ~= "" then
-                                    itemName = nameObj.Text
+                local mainObj = frame:FindFirstChild("Main")
+                local inner = mainObj and mainObj:FindFirstChild("Inner")
+                if inner then
+                    local qtyObj = inner:FindFirstChild("Quantity")
+                    if qtyObj and qtyObj:IsA("TextLabel") then
+                        qtyText = qtyObj.Text
+                        local num = tonumber(qtyText:match("%d+"))
+                        if num and num > 0 then
+                            local icon = inner:FindFirstChild("Icon")
+                            if icon and icon:IsA("ImageLabel") and icon.Image then
+                                local assetId = tostring(icon.Image):match("rbxassetid://(%d+)") or tostring(icon.Image):match("^(%d+)$")
+                                if assetId and IconToNameMap[assetId] then
+                                    itemName = IconToNameMap[assetId]
                                 end
                             end
+                            if not itemName then
+                                local title = inner:FindFirstChild("Title")
+                                if title and title:IsA("TextLabel") and title.Text ~= "" then
+                                    itemName = title.Text
+                                else
+                                    local nameObj = inner:FindFirstChild("Name")
+                                    if nameObj and nameObj:IsA("TextLabel") and nameObj.Text ~= "" then
+                                        itemName = nameObj.Text
+                                    end
+                                end
+                            end
+                            local rarity = inner:FindFirstChild("Rarity")
+                            if rarity and rarity.BackgroundColor3 == Color3.fromRGB(255, 0, 0) then
+                                isRare = true
+                            end
                         end
-                        local rarity = inner:FindFirstChild("Rarity")
-                        if rarity and rarity.BackgroundColor3 == Color3.fromRGB(255, 0, 0) then
-                            isRare = true
+                    end
+                else
+                    local nameLabel = frame:FindFirstChild("Name") or frame:FindFirstChild("Title")
+                    local amountLabel = frame:FindFirstChild("Amount") or frame:FindFirstChild("Quantity")
+                    if nameLabel and nameLabel:IsA("TextLabel") and amountLabel and amountLabel:IsA("TextLabel") then
+                        local num = tonumber(amountLabel.Text:match("%d+"))
+                        if num and num > 0 then
+                            qtyText = amountLabel.Text
+                            itemName = nameLabel.Text
                         end
                     end
                 end
-            else
-                local nameLabel = frame:FindFirstChild("Name") or frame:FindFirstChild("Title")
-                local amountLabel = frame:FindFirstChild("Amount") or frame:FindFirstChild("Quantity")
-                if nameLabel and nameLabel:IsA("TextLabel") and amountLabel and amountLabel:IsA("TextLabel") then
-                    local num = tonumber(amountLabel.Text:match("%d+"))
-                    if num and num > 0 then
-                        qtyText = amountLabel.Text
-                        itemName = nameLabel.Text
-                    end
-                end
-            end
             
-            if itemName and qtyText then
-                table.insert(rewardsList, { name = itemName, qty = qtyText, rare = isRare })
-                return true
-            end
-            return false
-        end
-        
-        local function scanAll(obj)
-            for _, child in ipairs(obj:GetChildren()) do
-                if child:IsA("Frame") then
-                    if extractFromFrame(child) then
-                        -- found
-                    else
-                        scanAll(child)
-                    end
+                if itemName and qtyText then
+                    table.insert(rewardsList, { name = itemName, qty = qtyText, rare = isRare })
+                    return true
                 end
+                return false
             end
-        end
-        scanAll(mainInfo)
-        return rewardsList
-    end
-
-    -- ===== Current mission rewards =====
-    -- Prefer S_Rewards/Get, then merge the Rewards UI so special drops are kept.
-    getCurrentMissionRewardsText = function(rewardData)
-        local lines = {}
-        local seen = {}
-
-        local function addLine(key, text)
-            if not key or not text or text == "" then return end
-            key = string.lower(tostring(key))
-            if seen[key] then return end
-            seen[key] = true
-            table.insert(lines, tostring(text))
-        end
-
-        local obtained = type(rewardData) == "table" and rewardData.Obtained or nil
-        if type(obtained) == "table" then
-            for name, value in pairs(obtained) do
-                if name == "Perks" and type(value) == "table" then
-                    for _, perkName in ipairs(value) do
-                        addLine("perk:" .. tostring(perkName), "• Perk: " .. tostring(perkName))
-                    end
-                elseif type(value) == "number" then
-                    if value ~= 0 then
-                        addLine("reward:" .. tostring(name), "• " .. tostring(name) .. ": " .. formatNumberWithComma(value))
-                    end
-                elseif type(value) == "string" then
-                    if value ~= "" and value ~= "0" then
-                        addLine("reward:" .. tostring(name), "• " .. tostring(name) .. ": " .. tostring(value))
-                    end
-                elseif type(value) == "table" then
-                    for subName, qty in pairs(value) do
-                        if type(qty) == "number" and qty ~= 0 then
-                            addLine(
-                                "reward:" .. tostring(subName),
-                                "• " .. tostring(subName) .. ": x" .. formatNumberWithComma(qty)
-                            )
-                        elseif type(qty) == "string" and qty ~= "" then
-                            addLine(
-                                "reward:" .. tostring(subName),
-                                "• " .. tostring(subName) .. ": " .. tostring(qty)
-                            )
+        
+            local function scanAll(obj)
+                for _, child in ipairs(obj:GetChildren()) do
+                    if child:IsA("Frame") then
+                        if extractFromFrame(child) then
+                            -- found
+                        else
+                            scanAll(child)
                         end
                     end
                 end
             end
+            scanAll(mainInfo)
+            return rewardsList
         end
 
-        local ok, uiRewards = pcall(function()
-            return getAllRewards()
-        end)
+        -- ===== Current mission rewards =====
+        -- Prefer S_Rewards/Get, then merge the Rewards UI so special drops are kept.
+        getCurrentMissionRewardsText = function(rewardData)
+            local lines = {}
+            local seen = {}
 
-        if ok and type(uiRewards) == "table" then
-            for _, item in ipairs(uiRewards) do
-                local itemName = tostring(item.name or "Unknown")
-                local qty = tostring(item.qty or "")
-                if itemName ~= "Unknown" and qty ~= "" then
-                    addLine("reward:" .. itemName, "• " .. itemName .. ": " .. qty)
+            local function addLine(key, text)
+                if not key or not text or text == "" then return end
+                key = string.lower(tostring(key))
+                if seen[key] then return end
+                seen[key] = true
+                table.insert(lines, tostring(text))
+            end
+
+            local obtained = type(rewardData) == "table" and rewardData.Obtained or nil
+            if type(obtained) == "table" then
+                for name, value in pairs(obtained) do
+                    if name == "Perks" and type(value) == "table" then
+                        for _, perkName in ipairs(value) do
+                            addLine("perk:" .. tostring(perkName), "• Perk: " .. tostring(perkName))
+                        end
+                    elseif type(value) == "number" then
+                        if value ~= 0 then
+                            addLine("reward:" .. tostring(name), "• " .. tostring(name) .. ": " .. formatNumberWithComma(value))
+                        end
+                    elseif type(value) == "string" then
+                        if value ~= "" and value ~= "0" then
+                            addLine("reward:" .. tostring(name), "• " .. tostring(name) .. ": " .. tostring(value))
+                        end
+                    elseif type(value) == "table" then
+                        for subName, qty in pairs(value) do
+                            if type(qty) == "number" and qty ~= 0 then
+                                addLine(
+                                    "reward:" .. tostring(subName),
+                                    "• " .. tostring(subName) .. ": x" .. formatNumberWithComma(qty)
+                                )
+                            elseif type(qty) == "string" and qty ~= "" then
+                                addLine(
+                                    "reward:" .. tostring(subName),
+                                    "• " .. tostring(subName) .. ": " .. tostring(qty)
+                                )
+                            end
+                        end
+                    end
                 end
             end
-        end
 
-        if #lines == 0 then
-            return "None"
-        end
+            local ok, uiRewards = pcall(function()
+                return getAllRewards()
+            end)
 
-        table.sort(lines)
-        local text = table.concat(lines, "\n")
-
-        -- Discord embed field values are capped at 1024 characters.
-        if #text > 1000 then
-            text = text:sub(1, 997) .. "..."
-        end
-
-        return text
-    end
-    
-    -- ===== ฟังก์ชันอื่นๆ (ส่ง All Data, Mission ฯลฯ) =====
-    local filters = {
-        Currency = true,
-        Progression = true,
-        Loadout = true,
-        Inventory = true,
-        Cosmetics = true,
-    }
-    
-    local function fmt(n)
-        if type(n) ~= "number" then return tostring(n) end
-        if n >= 1e9 then return string.format("%.2fB", n/1e9)
-        elseif n >= 1e6 then return string.format("%.2fM", n/1e6)
-        elseif n >= 1e3 then return string.format("%.1fK", n/1e3)
-        else return tostring(n) end
-    end
-    
-    local function getItems(tbl, prefix)
-        if not tbl then return nil end
-        local items = {}
-        for name, qty in pairs(tbl) do
-            table.insert(items, {name = name, qty = qty})
-        end
-        table.sort(items, function(a, b)
-            return string.lower(a.name) < string.lower(b.name)
-        end)
-        local lines = {}
-        for _, item in ipairs(items) do
-            table.insert(lines, (prefix or "• ") .. item.name .. ": x" .. tostring(item.qty))
-        end
-        return #lines > 0 and table.concat(lines, "\n") or nil, #lines
-    end
-    
-    local function getMissionState()
-        local ok, state = pcall(function()
-            return game:GetService("Players").LocalPlayer.PlayerGui.Interface.Rewards.Main.Info.State.Text
-        end)
-        return ok and state or ""
-    end
-    
-    local function formatModifiersText(modifiers)
-        local order = {
-            "No Perks", "No Skills", "No Memories", "Nightmare", "Oddball",
-            "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"
-        }
-        if not modifiers or type(modifiers) ~= "table" then return "None" end
-        local modList = {}
-        for k, v in pairs(modifiers) do
-            if type(k) == "number" then modList[#modList+1] = tostring(v)
-            elseif type(v) == "boolean" and v then modList[#modList+1] = tostring(k)
-            elseif type(v) == "string" then modList[#modList+1] = v end
-        end
-        local sortedMods = {}
-        for _, modName in ipairs(order) do
-            for _, m in ipairs(modList) do
-                if m == modName then table.insert(sortedMods, m) break end
+            if ok and type(uiRewards) == "table" then
+                for _, item in ipairs(uiRewards) do
+                    local itemName = tostring(item.name or "Unknown")
+                    local qty = tostring(item.qty or "")
+                    if itemName ~= "Unknown" and qty ~= "" then
+                        addLine("reward:" .. itemName, "• " .. itemName .. ": " .. qty)
+                    end
+                end
             end
+
+            if #lines == 0 then
+                return "None"
+            end
+
+            table.sort(lines)
+            local text = table.concat(lines, "\n")
+
+            -- Discord embed field values are capped at 1024 characters.
+            if #text > 1000 then
+                text = text:sub(1, 997) .. "..."
+            end
+
+            return text
         end
-        for _, m in ipairs(modList) do
-            local found = false
-            for _, ordered in ipairs(order) do if m == ordered then found = true break end end
-            if not found then table.insert(sortedMods, m) end
-        end
-        if #sortedMods == 0 then return "None" end
-        return "- " .. table.concat(sortedMods, "\n- ")
-    end
     
-    local function sendMissionEndWebhook(missionState)
-        if webhookURL == "" then return end
-        
-        local serverData = waitForServerData(3)
-        if not serverData or not serverData.Slots then
-            task.wait(0.5)
-            serverData = waitForServerData(1)
+        -- ===== ฟังก์ชันอื่นๆ (ส่ง All Data, Mission ฯลฯ) =====
+        local filters = {
+            Currency = true,
+            Progression = true,
+            Loadout = true,
+            Inventory = true,
+            Cosmetics = true,
+        }
+    
+        local function fmt(n)
+            if type(n) ~= "number" then return tostring(n) end
+            if n >= 1e9 then return string.format("%.2fB", n/1e9)
+            elseif n >= 1e6 then return string.format("%.2fM", n/1e6)
+            elseif n >= 1e3 then return string.format("%.1fK", n/1e3)
+            else return tostring(n) end
         end
-        waitForUIElements(2)
-        local player = game:GetService("Players").LocalPlayer
-        if not serverData then
+    
+        local function getItems(tbl, prefix)
+            if not tbl then return nil end
+            local items = {}
+            for name, qty in pairs(tbl) do
+                table.insert(items, {name = name, qty = qty})
+            end
+            table.sort(items, function(a, b)
+                return string.lower(a.name) < string.lower(b.name)
+            end)
+            local lines = {}
+            for _, item in ipairs(items) do
+                table.insert(lines, (prefix or "• ") .. item.name .. ": x" .. tostring(item.qty))
+            end
+            return #lines > 0 and table.concat(lines, "\n") or nil, #lines
+        end
+    
+        local function getMissionState()
+            local ok, state = pcall(function()
+                return game:GetService("Players").LocalPlayer.PlayerGui.Interface.Rewards.Main.Info.State.Text
+            end)
+            return ok and state or ""
+        end
+    
+        local function formatModifiersText(modifiers)
+            local order = {
+                "No Perks", "No Skills", "No Memories", "Nightmare", "Oddball",
+                "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"
+            }
+            if not modifiers or type(modifiers) ~= "table" then return "None" end
+            local modList = {}
+            for k, v in pairs(modifiers) do
+                if type(k) == "number" then modList[#modList+1] = tostring(v)
+                elseif type(v) == "boolean" and v then modList[#modList+1] = tostring(k)
+                elseif type(v) == "string" then modList[#modList+1] = v end
+            end
+            local sortedMods = {}
+            for _, modName in ipairs(order) do
+                for _, m in ipairs(modList) do
+                    if m == modName then table.insert(sortedMods, m) break end
+                end
+            end
+            for _, m in ipairs(modList) do
+                local found = false
+                for _, ordered in ipairs(order) do if m == ordered then found = true break end end
+                if not found then table.insert(sortedMods, m) end
+            end
+            if #sortedMods == 0 then return "None" end
+            return "- " .. table.concat(sortedMods, "\n- ")
+        end
+    
+        local function sendMissionEndWebhook(missionState)
+            if webhookURL == "" then return end
+        
+            local serverData = waitForServerData(3)
+            if not serverData or not serverData.Slots then
+                task.wait(0.5)
+                serverData = waitForServerData(1)
+            end
+            waitForUIElements(2)
+            local player = game:GetService("Players").LocalPlayer
+            if not serverData then
+                pcall(function()
+                    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                    serverData = GET:InvokeServer("Data", "Copy")
+                end)
+            end
+            if not serverData or not serverData.Slots then return end
+            local slot = serverData.Slots[serverData.Current_Slot or "A"]
+            if not slot then return end
+            local rewardData = getRealTimeRewardData()
+            local missionTimer = getMissionTime()
+            local currentMissionRewards = getCurrentMissionRewardsText(rewardData)
+
+            local fields = {}
+            if serverData.Map then
+                local modsText = formatModifiersText(serverData.Map.Modifiers)
+                local mapValue = string.format("Map: %s\nDifficulty: %s\nObjective: %s\nMission Time: %s\n\nModifiers:\n%s",
+                    serverData.Map.Map or "Unknown",
+                    serverData.Map.Difficulty or "Unknown",
+                    serverData.Map.Objective or "Unknown",
+                    missionTimer,
+                    modsText)
+                table.insert(fields, {name = "Mission Info", value = mapValue, inline = false})
+            else
+                table.insert(fields, {name = "Mission Timer", value = missionTimer, inline = true})
+            end
+
+            table.insert(fields, {
+                name = "Current Mission Rewards",
+                value = currentMissionRewards,
+                inline = false
+            })
+
+            if filters.Currency then
+                table.insert(fields, {name = "Currency", value = string.format("Gold: %s\nGems: %s\nCanes: %s\nShards: %s",
+                    fmt(slot.Currency and slot.Currency.Gold or 0),
+                    fmt(slot.Currency and slot.Currency.Gems or 0),
+                    fmt(slot.Currency and slot.Currency.Canes or 0),
+                    fmt(slot.Currency and slot.Currency.Shards or 0)), inline = true})
+            end
+            if filters.Progression then
+                table.insert(fields, {name = "Progression", value = string.format("Level: %s\nPrestige: %s\nXP: %s/%s",
+                    slot.Progression and slot.Progression.Level or 0,
+                    slot.Progression and slot.Progression.Prestige or 0,
+                    fmt(slot.Progression and slot.Progression.XP or 0),
+                    fmt(slot.Progression and slot.Progression.Max_XP or 0)), inline = true})
+            end
+            if filters.Loadout then
+                table.insert(fields, {name = "Loadout", value = string.format("Weapon: %s\nSlot: %s\nSpins: %s",
+                    slot.Weapon or "?",
+                    serverData.Current_Slot or "A",
+                    fmt(slot.Total_Spins or 0)), inline = true})
+            end
+            if filters.Inventory and slot.Inventory and slot.Inventory.Items then
+                local text, count = getItems(slot.Inventory.Items, "• ")
+                if text then table.insert(fields, {name = "Inventory ("..count.." items)", value = ""..text.."", inline = false}) end
+            end
+            if filters.Cosmetics and slot.Inventory and slot.Inventory.Cosmetics then
+                local text, count = getItems(slot.Inventory.Cosmetics, "• ")
+                if text then table.insert(fields, {name = "Cosmetics ("..count.." items)", value = ""..text.."", inline = false}) end
+            end
+            local isCompleted = missionState and (missionState:find("COMPLETED") or missionState:find("FINISHED"))
+            local color = isCompleted and 65280 or 16711680
+            local body = game:GetService("HttpService"):JSONEncode({
+                embeds = {{
+                    title = (missionState or "All Data") .. " - " .. player.Name,
+                    color = color,
+                    fields = fields,
+                    footer = {text = os.date("%Y-%m-%d %H:%M:%S")}
+                }}
+            })
             pcall(function()
-                local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-                serverData = GET:InvokeServer("Data", "Copy")
+                request({Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body})
             end)
         end
-        if not serverData or not serverData.Slots then return end
-        local slot = serverData.Slots[serverData.Current_Slot or "A"]
-        if not slot then return end
-        local rewardData = getRealTimeRewardData()
-        local missionTimer = getMissionTime()
-        local currentMissionRewards = getCurrentMissionRewardsText(rewardData)
-
-        local fields = {}
-        if serverData.Map then
-            local modsText = formatModifiersText(serverData.Map.Modifiers)
-            local mapValue = string.format("Map: %s\nDifficulty: %s\nObjective: %s\nMission Time: %s\n\nModifiers:\n%s",
-                serverData.Map.Map or "Unknown",
-                serverData.Map.Difficulty or "Unknown",
-                serverData.Map.Objective or "Unknown",
-                missionTimer,
-                modsText)
-            table.insert(fields, {name = "Mission Info", value = mapValue, inline = false})
-        else
-            table.insert(fields, {name = "Mission Timer", value = missionTimer, inline = true})
-        end
-
-        table.insert(fields, {
-            name = "Current Mission Rewards",
-            value = currentMissionRewards,
-            inline = false
-        })
-
-        if filters.Currency then
-            table.insert(fields, {name = "Currency", value = string.format("Gold: %s\nGems: %s\nCanes: %s\nShards: %s",
-                fmt(slot.Currency and slot.Currency.Gold or 0),
-                fmt(slot.Currency and slot.Currency.Gems or 0),
-                fmt(slot.Currency and slot.Currency.Canes or 0),
-                fmt(slot.Currency and slot.Currency.Shards or 0)), inline = true})
-        end
-        if filters.Progression then
-            table.insert(fields, {name = "Progression", value = string.format("Level: %s\nPrestige: %s\nXP: %s/%s",
-                slot.Progression and slot.Progression.Level or 0,
-                slot.Progression and slot.Progression.Prestige or 0,
-                fmt(slot.Progression and slot.Progression.XP or 0),
-                fmt(slot.Progression and slot.Progression.Max_XP or 0)), inline = true})
-        end
-        if filters.Loadout then
-            table.insert(fields, {name = "Loadout", value = string.format("Weapon: %s\nSlot: %s\nSpins: %s",
-                slot.Weapon or "?",
-                serverData.Current_Slot or "A",
-                fmt(slot.Total_Spins or 0)), inline = true})
-        end
-        if filters.Inventory and slot.Inventory and slot.Inventory.Items then
-            local text, count = getItems(slot.Inventory.Items, "• ")
-            if text then table.insert(fields, {name = "Inventory ("..count.." items)", value = ""..text.."", inline = false}) end
-        end
-        if filters.Cosmetics and slot.Inventory and slot.Inventory.Cosmetics then
-            local text, count = getItems(slot.Inventory.Cosmetics, "• ")
-            if text then table.insert(fields, {name = "Cosmetics ("..count.." items)", value = ""..text.."", inline = false}) end
-        end
-        local isCompleted = missionState and (missionState:find("COMPLETED") or missionState:find("FINISHED"))
-        local color = isCompleted and 65280 or 16711680
-        local body = game:GetService("HttpService"):JSONEncode({
-            embeds = {{
-                title = (missionState or "All Data") .. " - " .. player.Name,
-                color = color,
-                fields = fields,
-                footer = {text = os.date("%Y-%m-%d %H:%M:%S")}
-            }}
-        })
-        pcall(function()
-            request({Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body})
-        end)
-    end
     
-    -- ===== เชื่อมต่อ Event เมื่อ Rewards เปิด =====
-    task.spawn(function()
-        local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-        local rewards = playerGui.Interface.Rewards
-        rewards:GetPropertyChangedSignal("Visible"):Connect(function()
-            if not rewards.Visible then
-                hasSentWebhook = false
-                lastMissionState = ""
-                return
+        -- ===== เชื่อมต่อ Event เมื่อ Rewards เปิด =====
+        task.spawn(function()
+            local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+            local rewards = playerGui.Interface.Rewards
+            rewards:GetPropertyChangedSignal("Visible"):Connect(function()
+                if not rewards.Visible then
+                    hasSentWebhook = false
+                    lastMissionState = ""
+                    return
+                end
+                if not webhookEnabled then return end
+                if hasSentWebhook then return end
+                if webhookURL == "" then return end
+                task.wait(2.5)
+                if webhookMode == "Reward Webhook" then
+                    sendRewardWebhook()
+                    hasSentWebhook = true
+                else
+                    local missionState = getMissionState()
+                    if missionState == lastMissionState and missionState ~= "" then return end
+                    lastMissionState = missionState
+                    sendMissionEndWebhook(missionState)
+                    hasSentWebhook = true
+                end
+            end)
+        end)
+    
+        -- ===== UI Components =====
+        WebhookGroup:AddInput("WebhookURL", {
+            Default = "", Numeric = false, Finished = true,
+            Text = "Discord Webhook URL",
+            Placeholder = "https://discord.com/api/webhooks/...",
+            Callback = function(v) webhookURL = v end
+        })
+    
+        WebhookGroup:AddDivider()
+    
+        WebhookGroup:AddDropdown("WebhookMode", {
+            Text = "Webhook Type",
+            Values = {"All Data", "Reward Webhook"},
+            Default = "All Data",
+            Multi = false,
+            Callback = function(v) webhookMode = v end
+        })
+    
+        WebhookGroup:AddDropdown("WebhookPingMode", {
+            Text = "Ping Mode (For Special Drops)",
+            Values = {"None", "@here", "@everyone"},
+            Default = "None",
+            Multi = false,
+            Callback = function(v)
+                webhookPingMode = v
             end
-            if not webhookEnabled then return end
-            if hasSentWebhook then return end
+        })
+    
+        WebhookGroup:AddDivider()
+    
+        local filterDropdown = WebhookGroup:AddDropdown("WebhookFilters", {
+            Values = {"Currency", "Progression", "Loadout", "Inventory", "Cosmetics"},
+            Default = {"Currency", "Progression", "Loadout", "Inventory", "Cosmetics"},
+            Multi = true,
+            Text = "Report Only for All Data ",
+            Callback = function(v)
+                filters.Currency = v["Currency"] or false
+                filters.Progression = v["Progression"] or false
+                filters.Loadout = v["Loadout"] or false
+                filters.Inventory = v["Inventory"] or false
+                filters.Cosmetics = v["Cosmetics"] or false
+            end
+        })
+    
+        WebhookGroup:AddDivider()
+    
+        WebhookGroup:AddToggle("WebhookToggle", {
+            Text = "Enable Auto Webhook",
+            Default = false,
+            Callback = function(v)
+                webhookEnabled = v
+                if not v then 
+                    hasSentWebhook = false
+                    lastMissionState = ""
+                end
+            end
+        })
+    
+        WebhookGroup:AddButton("Test Send", function()
             if webhookURL == "" then return end
-            task.wait(2.5)
-            if webhookMode == "Reward Webhook" then
-                sendRewardWebhook()
-                hasSentWebhook = true
-            else
-                local missionState = getMissionState()
-                if missionState == lastMissionState and missionState ~= "" then return end
-                lastMissionState = missionState
-                sendMissionEndWebhook(missionState)
-                hasSentWebhook = true
-            end
+            local testBody = game:GetService("HttpService"):JSONEncode({
+                content = "Test from TownShip!",
+                embeds = {{
+                    title = "Webhook Working!",
+                    color = 65280,
+                    fields = {
+                        {name = "Mode", value = webhookMode, inline = true},
+                        {name = "Ping Mode", value = webhookPingMode, inline = true},
+                        {name = "Test Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true}
+                    },
+                    footer = {text = "TownShip Webhook Test"}
+                }}
+            })
+            pcall(function()
+                request({Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = testBody})
+                Library:Notify("Test webhook sent!", 2)
+            end)
         end)
-    end)
-    
-    -- ===== UI Components =====
-    WebhookGroup:AddInput("WebhookURL", {
-        Default = "", Numeric = false, Finished = true,
-        Text = "Discord Webhook URL",
-        Placeholder = "https://discord.com/api/webhooks/...",
-        Callback = function(v) webhookURL = v end
-    })
-    
-    WebhookGroup:AddDivider()
-    
-    WebhookGroup:AddDropdown("WebhookMode", {
-        Text = "Webhook Type",
-        Values = {"All Data", "Reward Webhook"},
-        Default = "All Data",
-        Multi = false,
-        Callback = function(v) webhookMode = v end
-    })
-    
-    WebhookGroup:AddDropdown("WebhookPingMode", {
-        Text = "Ping Mode (For Special Drops)",
-        Values = {"None", "@here", "@everyone"},
-        Default = "None",
-        Multi = false,
-        Callback = function(v)
-            webhookPingMode = v
-        end
-    })
-    
-    WebhookGroup:AddDivider()
-    
-    local filterDropdown = WebhookGroup:AddDropdown("WebhookFilters", {
-        Values = {"Currency", "Progression", "Loadout", "Inventory", "Cosmetics"},
-        Default = {"Currency", "Progression", "Loadout", "Inventory", "Cosmetics"},
-        Multi = true,
-        Text = "Report Only for All Data ",
-        Callback = function(v)
-            filters.Currency = v["Currency"] or false
-            filters.Progression = v["Progression"] or false
-            filters.Loadout = v["Loadout"] or false
-            filters.Inventory = v["Inventory"] or false
-            filters.Cosmetics = v["Cosmetics"] or false
-        end
-    })
-    
-    WebhookGroup:AddDivider()
-    
-    WebhookGroup:AddToggle("WebhookToggle", {
-        Text = "Enable Auto Webhook",
-        Default = false,
-        Callback = function(v)
-            webhookEnabled = v
-            if not v then 
-                hasSentWebhook = false
-                lastMissionState = ""
-            end
-        end
-    })
-    
-    WebhookGroup:AddButton("Test Send", function()
-        if webhookURL == "" then return end
-        local testBody = game:GetService("HttpService"):JSONEncode({
-            content = "Test from TownShip!",
-            embeds = {{
-                title = "Webhook Working!",
-                color = 65280,
-                fields = {
-                    {name = "Mode", value = webhookMode, inline = true},
-                    {name = "Ping Mode", value = webhookPingMode, inline = true},
-                    {name = "Test Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true}
-                },
-                footer = {text = "TownShip Webhook Test"}
-            }}
-        })
-        pcall(function()
-            request({Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = testBody})
-            Library:Notify("Test webhook sent!", 2)
-        end)
-    end)
+    end)()
 end
+
 if IsIngameLobby() and Tabs.Webhook then
     local descGroup = Tabs.Webhook:AddRightGroupbox("Set Description")
 
@@ -13821,124 +14806,7 @@ end
 -- ============================================================
 
 -- ============================================================
--- EXACT STANDALONE 9-TITAN REMOTE - INSTANT / NO WAIT GATES
---
--- No mission-start wait.
--- No blade/reload wait.
--- No IsReloading / IsRefilling checks.
--- No movement/farm/objective checks.
---
--- Starts sending as soon as valid Titan napes exist and keeps
--- sending from start to finish.
+-- The old standalone 9-Titan infinite remote loop was removed.
+-- Blade attacks are handled by the exact 9-Titan / 0.5s worker above
+-- worker above, including No Movement mode.
 -- ============================================================
-
-local ReplicatedStorage_Standalone9 = game:GetService("ReplicatedStorage")
-
-local POST_Standalone9 = ReplicatedStorage_Standalone9
-    :WaitForChild("Assets")
-    :WaitForChild("Remotes")
-    :WaitForChild("POST")
-
-local RUNNING_STANDALONE9 = true
-local INTERVAL_STANDALONE9 = 0.25
-local MAX_TARGETS_STANDALONE9 = 9
-
-local function getStandalone9TargetsExact()
-    local Titans = workspace:FindFirstChild("Titans")
-
-    if not Titans then
-        return {}
-    end
-
-    local targets = {}
-
-    for _, titan in ipairs(Titans:GetChildren()) do
-        if titan:IsA("Model") then
-            local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
-
-            if humanoid and humanoid.Health > 0 then
-                local hitboxes = titan:FindFirstChild("Hitboxes")
-                local hit = hitboxes and hitboxes:FindFirstChild("Hit")
-                local nape = hit and hit:FindFirstChild("Nape")
-
-                if nape and nape:IsA("BasePart") and nape.Parent then
-                    targets[#targets + 1] = nape
-
-                    if #targets >= MAX_TARGETS_STANDALONE9 then
-                        break
-                    end
-                end
-            end
-        end
-    end
-
-    return targets
-end
-
-local function isMissionCompleteStandalone9()
-    -- Use the SAME Rewards visibility check as the main farm.
-    -- Do not treat ScreenGui.Enabled by itself as mission completion,
-    -- because that can be true while a mission is still running.
-    local ok, visible = pcall(IsRewardsUIVisible)
-
-    if ok then
-        return visible == true
-    end
-
-    return false
-end
-
-local function hitStandalone9Exact()
-    -- Only stop once the mission is complete / rewards screen is shown.
-    -- No startup waits, reload waits, or blade waits are added.
-    if isMissionCompleteStandalone9() then
-        return
-    end
-
-    local targets = getStandalone9TargetsExact()
-
-    if #targets == 0 then
-        return
-    end
-
-    POST_Standalone9:FireServer(
-        "Attacks",
-        "Slash",
-        true
-    )
-
-    for i = 1, #targets do
-        if isMissionCompleteStandalone9() then
-            return
-        end
-
-        local nape = targets[i]
-
-        if nape and nape.Parent then
-            POST_Standalone9:FireServer(
-                "Hitboxes",
-                "Register",
-                nape,
-                99999,
-                0
-            )
-        end
-    end
-end
-
-while RUNNING_STANDALONE9 do
-    -- Keep the original working Titan-kill remote exactly as-is,
-    -- but only allow it to send while Auto Farm Blade is enabled.
-    if getgenv().AutoFarmBlade and not isMissionCompleteStandalone9() then
-        hitStandalone9Exact()
-    end
-
-    -- When Auto Farm Blade is OFF, or Rewards is visible,
-    -- no Titan kill remote is sent.
-    task.wait(INTERVAL_STANDALONE9)
-end
-
-
-task.spawn(function()
-    task.wait(1)
-end)
