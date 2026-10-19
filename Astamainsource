@@ -42,7 +42,7 @@ getgenv().TownShipConfig = {
         JoinDestination = "Lobby",   -- Destination used by AutoJoin. Example: "Lobby".
         JoinDelay = 0,               -- Seconds to wait before AutoJoin performs its action.
 
-        TeleportTime = 0,            -- Delay in seconds for AutoTeleport. 0 = no extra delay.
+        TeleportTime = 20,            -- Delay in seconds for AutoTeleport. 0 = no extra delay.
 
         StopAtSpins = "0",           -- Spin limit used by StopAtSpinLimit. Kept as text for compatibility.
         SpinFamilies = {},           -- Families AutoSpin should target. Example: {"Yeager", "Ackerman"}.
