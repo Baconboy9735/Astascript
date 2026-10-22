@@ -6776,7 +6776,6 @@ if Tabs.Lobby then
 
         if not missionRunning or missionSessionId ~= mySession then return end
 
-        if not WaitForPrestigeBeforeMission(mySession) then return end
         if not missionRunning or missionSessionId ~= mySession then return end
 
         local selectionVersion = missionSelectionVersion
