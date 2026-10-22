@@ -11,7 +11,8 @@ getgenv().TownShipConfig = {
     -- Numbers are usually seconds, amounts, speed, height, etc.
     -- ========================================================
     System = {
-        ConsoleMessages = false,     -- Master console switch. false = suppress all Asta print/warn messages.
+        ConsoleMessages = false,     -- General console switch; PrestigeDiagnostics is independent.
+        PrestigeDiagnostics = false, -- Show Prestige decisions and mission preflight results.
         PrintNotifications = false,  -- true = print old UI notifications (only when ConsoleMessages is true).
         PrintConfigLoads = false,    -- true = print every config value as it loads (only when ConsoleMessages is true).
     },
@@ -378,6 +379,8 @@ getgenv().TownShipConfig = {
 -- NOTE: Internal TownShipConfig / TownShip folder identifiers are kept
 -- for backward compatibility with existing saved files and teleport logic.
 local CONFIG = getgenv().TownShipConfig
+getgenv().AstaPrestigePreflight = nil
+getgenv().AstaPrestigeStatus = nil
 
 if type(CONFIG) ~= "table" then
     warn("[Asta v1] Config not found.")
@@ -6727,6 +6730,39 @@ if Tabs.Lobby then
     -- Main Cycle
     -- ═══════════════════════════════════════════════════════════
 
+    local function WaitForPrestigeBeforeMission(mySession)
+        local cfg = CONFIG.Lobby and CONFIG.Lobby.Prestige
+        if not cfg or not cfg.Enabled then return true end
+        local function log(message)
+            if CONFIG.System and CONFIG.System.PrestigeDiagnostics then
+                _AstaOriginalPrint("[Prestige/Mission] " .. message)
+            end
+        end
+        local started, lastLog = tick(), nil
+        while missionRunning and missionSessionId == mySession do
+            local check = getgenv().AstaPrestigePreflight
+            if type(check) == "function" then
+                local ok, allowed, reason = pcall(check)
+                if ok and allowed then
+                    log("Preflight completed: " .. tostring(reason) .. "; mission may start")
+                    return true
+                end
+                local message = ok and tostring(reason or "Prestige still processing")
+                    or ("Preflight error: " .. tostring(allowed))
+                if message ~= lastLog then log(message) lastLog = message end
+            elseif lastLog ~= "initializing" then
+                log("Waiting for Prestige worker initialization before creating a mission")
+                lastLog = "initializing"
+            end
+            if tick() - started >= 45 then
+                log("Mission postponed: Prestige check has not completed; retrying next cycle")
+                return false
+            end
+            task.wait(0.5)
+        end
+        return false
+    end
+
     local function RunMissionCycle(mySession)
         if not missionRunning or missionSessionId ~= mySession then return end
 
@@ -6738,6 +6774,9 @@ if Tabs.Lobby then
             task.wait(MissionDelay)
         end
 
+        if not missionRunning or missionSessionId ~= mySession then return end
+
+        if not WaitForPrestigeBeforeMission(mySession) then return end
         if not missionRunning or missionSessionId ~= mySession then return end
 
         local selectionVersion = missionSelectionVersion
@@ -8854,150 +8893,314 @@ if IsLobbyLobby() then
         end
     end
 
-    local function doPrestige(force)
-        if not force and not getgenv().PrestigeEnabled then return false end
+    -- Prestige v2: follow the game's Boosts -> Talents -> Prestige sequence.
+    -- One offer per slot/prestige, one commit, then observe before sending again.
+    local prestigeV2Busy = false
+    local prestigeV2Offer = nil
+    local prestigeV2Uncertain = false
+    local prestigeV2Pending = nil
+    local PRESTIGE_CONFIRM_TIMEOUT = 20
+    local PRESTIGE_POLL_INTERVAL = 1
 
-        -- One forced refresh, then all getters use the same cache
-        getSlotData(true)
-        local currentPrestige = getCurrentPrestige()
-        local currentLevel = getLevel()
-        local currentXP = getXPPercent()
-        local currentGold = getGold()
-
-        local can, reason = canPrestige(currentPrestige, currentLevel, currentXP, currentGold)
-
-        if not can then
-            notifyStatus(reason, currentPrestige, currentLevel, currentXP, currentGold, force)
-            if reason == "max" and getgenv().PrestigeEnabled then
-                getgenv().PrestigeEnabled = false
-                pcall(function()
-                    if Options and Options.PrestigeToggle then Options.PrestigeToggle:SetValue(false) end
-                end)
-            end
-            return false
+    local function prestigeV2Status(stage, message)
+        local previous = getgenv().AstaPrestigeStatus
+        getgenv().AstaPrestigeStatus = {Stage = stage, Message = message, Time = os.clock()}
+        if CONFIG.System and CONFIG.System.PrestigeDiagnostics
+            and (not previous or previous.Stage ~= stage or previous.Message ~= message) then
+            _AstaOriginalPrint("[Prestige] " .. stage .. " | " .. tostring(message))
         end
-
-        notifyStatus("ok", currentPrestige, currentLevel, currentXP, currentGold, true)
-
-        -- Hard rate-limit: never spam Prestige remote
-        local now = tick()
-        if not force and (now - lastPrestigeAttempt) < MIN_PRESTIGE_GAP then
-            return false
-        end
-
-        local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
-
-        ----------------------------------------------------------------
-        local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
-
-        -- Fetch Next_Talents ids and map via Memories TalentIdToName
-        local function fetchNextTalentIds()
-            local ids = {}
-            local ok, res = pcall(function()
-                return Event:InvokeServer("S_Equipment", "Talents")
-            end)
-            if not ok or type(res) ~= "table" or type(res.Slots) ~= "table" then return ids end
-            local key = res.Current_Slot or res.CurrentSlot or "A"
-            local slot = res.Slots[key] or res.Slots["A"]
-            local nextT = slot and slot.Next_Talents
-            if type(nextT) ~= "table" then return ids end
-            for _, id in pairs(nextT) do
-                table.insert(ids, tostring(id))
-            end
-            return ids
-        end
-
-        local nextIds = fetchNextTalentIds()
-        if #nextIds == 0 and #lastProbedIds > 0 and (tick() - lastProbedTime) < 90 then
-            for _, id in ipairs(lastProbedIds) do table.insert(nextIds, id) end
-        end
-        if #nextIds == 0 then
-            Library:Notify("No Next_Talents from server", 5)
-            return false
-        end
-
-        lastProbedIds = {}
-        for _, id in ipairs(nextIds) do table.insert(lastProbedIds, id) end
-        lastProbedTime = tick()
-
-        local parts = {}
-        local talentName = nil
-        for _, id in ipairs(nextIds) do
-            local nm = TalentIdToName[tonumber(id)] or TalentIdToName[id] or TalentIdToName[tostring(id)]
-            table.insert(parts, nm and (id .. "=" .. nm) or (id .. "=?"))
-            if not talentName and nm then
-                talentName = nm
-            end
-        end
-        Library:Notify("Next_Talents: " .. table.concat(parts, ", "), 5)
-        print("[Prestige] Next_Talents:", table.concat(parts, ", "))
-
-        if not talentName then
-            Library:Notify("Unknown talent ids [" .. table.concat(nextIds, ",") .. "] — not sending", 6)
-            return false
-        end
-
-        local boostArg = getgenv().SelectedBoost or "Gold Boost"
-        -- Cobalt: Boosts = "Gold Boost", Talents = "Furyforge"
-        lastPrestigeAttempt = tick()
-        task.wait(0.25)
-
-        local ok, err = pcall(function()
-            Event:InvokeServer("S_Equipment", "Prestige", {
-                Boosts = boostArg,
-                Talents = talentName,
-            })
-        end)
-
-        if not ok then
-            Library:Notify("Prestige remote error: " .. tostring(err), 5)
-            return false
-        end
-
-        Library:Notify(string.format("Prestige sent once → %s | %s (waiting...)", talentName, boostArg), 5)
-
-        -- Verify prestige actually increased
-        task.wait(2.5)
-        slotCache.time = 0
-        getSlotData(true)
-        local after = getCurrentPrestige()
-        if after > currentPrestige then
-            Library:Notify(string.format("✅ Prestige success P%d → P%d", currentPrestige, after), 5)
-            if after >= 5 and getgenv().PrestigeEnabled then
-                getgenv().PrestigeEnabled = false
-                pcall(function()
-                    if Options and Options.PrestigeToggle then Options.PrestigeToggle:SetValue(false) end
-                end)
-            end
-        else
-            Library:Notify(string.format("⚠️ Prestige did not apply (still P%d). Stopping auto to save scrolls.", after), 6)
-            if getgenv().PrestigeEnabled then
-                getgenv().PrestigeEnabled = false
-                pcall(function()
-                    if Options and Options.PrestigeToggle then Options.PrestigeToggle:SetValue(false) end
-                end)
-            end
-        end
-
-        lastStatusReason = nil
-        lastGoldNotifyStep = -1
-        lastGoldNotifyStatus = nil
-        return after > currentPrestige
     end
+
+    local function prestigeV2Slot(data, expectedKey)
+        if type(data) ~= "table" or type(data.Slots) ~= "table" then return nil end
+        local key = data.Current_Slot or data.CurrentSlot or expectedKey
+        if key == nil then return nil end
+        if expectedKey and key ~= expectedKey then return nil end
+        local slot = data.Slots[key]
+        if type(slot) ~= "table" or type(slot.Progression) ~= "table" then return nil end
+        if type(slot.Progression.Prestige) ~= "number" then return nil end
+        return slot, key
+    end
+
+    local function prestigeV2Snapshot()
+        local expected = Player:GetAttribute("Slot")
+        if expected == nil then return nil, "Current slot is unknown" end
+        local ok, values = pcall(function()
+            return table.pack(GET:InvokeServer("Data", "Copy"))
+        end)
+        if ok then
+            for i = 1, values.n do
+                local slot, key = prestigeV2Slot(values[i], expected)
+                if slot and type(slot.Progression.Level) == "number"
+                    and type(slot.Currency) == "table" and type(slot.Currency.Gold) == "number" then
+                    -- Update all old status readers from one current snapshot.
+                    slotCache = {slot = slot, data = values[i], time = tick()}
+                    return {slot = slot, key = key, data = values[i], source = "server_data", goldExact = true}
+                end
+            end
+        end
+        -- Eligibility is max level + the configured Gold threshold only.
+        -- Never use button visibility, XP labels, or a stale cached slot.
+        local p = Player:GetAttribute("Prestige")
+        local level = Player:GetAttribute("Level")
+        local gui = Player:FindFirstChildOfClass("PlayerGui")
+        local interface = gui and gui:FindFirstChild("Interface")
+        local topbar = interface and interface:FindFirstChild("Topbar")
+        local main = topbar and topbar:FindFirstChild("Main")
+        local currencies = main and main:FindFirstChild("Currencies")
+        local gold = currencies and currencies:FindFirstChild("Gold")
+        local amount = gold and gold:FindFirstChild("Amount")
+        if type(p) ~= "number" or type(level) ~= "number" then
+            return nil, "Waiting for current Prestige and Level"
+        end
+        local goldText = amount and tostring(amount.Text):gsub("<[^>]+>", ""):gsub(",", ""):gsub("%s+", "") or ""
+        local exactGold = goldText:match("^%d+$") and tonumber(goldText) or nil
+        if workspace:GetAttribute("Map") ~= "Lobby" then
+            return nil, "Waiting for the Lobby before Prestige"
+        end
+        return {
+            key = expected, source = "live_attributes_and_gold", goldExact = exactGold ~= nil,
+            slot = {Progression = {Prestige = p, Level = level},
+                Currency = {Gold = exactGold or 0}}
+        }
+    end
+
+    local function prestigeV2Gate(snapshot)
+        local s = snapshot.slot
+        local progression = s.Progression
+        local p, level = progression.Prestige, progression.Level
+        local function validNumber(value)
+            return type(value) == "number" and value == value and math.abs(value) < math.huge and value >= 0
+        end
+        if not validNumber(p) or p % 1 ~= 0 or not validNumber(level) then
+            return false, "data", "Current Prestige/Level could not be verified"
+        end
+        if p >= 5 then return false, "max" end
+        local maxLevel = MAX_LEVEL_FOR_PRESTIGE[p + 1]
+        if not maxLevel then return false, "data", "Unknown max-level requirement" end
+        if level < maxLevel then return false, "level" end
+        if getgenv().ForceGoldRequirement then
+            local requirements = getgenv().PrestigeGoldRequirement
+            local requiredM = type(requirements) == "table" and requirements[p + 1]
+            if not validNumber(requiredM) then
+                return false, "data", "Configured Gold requirement is invalid; no request sent"
+            end
+            if requiredM > 0 and (snapshot.goldExact ~= true or not validNumber(s.Currency.Gold)) then
+                return false, "data", "Waiting for exact Gold; abbreviated/unknown balances are not accepted"
+            end
+        end
+        -- 100 here disables the OLD XP condition; eligibility is level + Gold.
+        -- Gold is still compared using the original thresholds, in millions.
+        local can, reason = canPrestige(p, level, 100, s.Currency.Gold)
+        return can, reason, nil, 100
+    end
+
+    local function prestigeV2TalentIds(value)
+        if type(value) ~= "table" then return {} end
+        local ids = {}
+        for _, id in ipairs(value) do
+            if type(id) == "string" or type(id) == "number" then
+                ids[#ids + 1] = tostring(id)
+            end
+        end
+        return ids
+    end
+
+    local function prestigeV2Run(force)
+        if not force and not getgenv().PrestigeEnabled then return false end
+        if prestigeV2Uncertain then
+            local pending = prestigeV2Pending
+            local observed = Player:GetAttribute("Prestige")
+            if pending and Player:GetAttribute("Slot") == pending.key
+                and type(observed) == "number" and observed > pending.prestige then
+                prestigeV2Uncertain, prestigeV2Offer, prestigeV2Pending = false, nil, nil
+                slotCache.time = 0
+                prestigeV2Status("Success", "Delayed prestige update confirmed")
+                if observed >= 5 then getgenv().PrestigeEnabled = false end
+                return true
+            end
+            if pending and pending.stage == "offer" then
+                local recovered = prestigeV2Snapshot()
+                if recovered and recovered.key == pending.key
+                    and recovered.slot.Progression.Prestige == pending.prestige then
+                    local ids = prestigeV2TalentIds(recovered.slot.Next_Talents)
+                    if #ids > 0 then
+                        prestigeV2Offer = {key = pending.key, prestige = pending.prestige, ids = ids}
+                        prestigeV2Uncertain, prestigeV2Pending = false, nil
+                        prestigeV2Status("Recovered", "Pending talent offer recovered without rerolling")
+                    end
+                end
+            end
+        end
+        if prestigeV2Uncertain then
+            prestigeV2Status("Paused", "Previous request is unconfirmed; no duplicate request was sent")
+            return false
+        end
+        if tick() - lastPrestigeAttempt < MIN_PRESTIGE_GAP then return false end
+        local snapshot, readError = prestigeV2Snapshot()
+        if not snapshot then prestigeV2Status("WaitingData", readError) return false end
+        local p, key = snapshot.slot.Progression.Prestige, snapshot.key
+        prestigeV2Status("Checking", string.format("Slot %s | P%d | Level %d | Gold %.0f | ForceGold=%s | RequiredGold=%.0f | Source=%s",
+            tostring(key), p, snapshot.slot.Progression.Level, snapshot.slot.Currency.Gold,
+            tostring(getgenv().ForceGoldRequirement), getgenv().ForceGoldRequirement
+                and (getgenv().PrestigeGoldRequirement[p + 1] or 0) * 1000000 or 0,
+            snapshot.source or "server_data"))
+        local can, reason, detail, xp = prestigeV2Gate(snapshot)
+        if not can then
+            prestigeV2Status("Waiting", detail or reason)
+            if reason ~= "data" then
+                notifyStatus(reason, p, snapshot.slot.Progression.Level, xp or 0,
+                    snapshot.slot.Currency.Gold, force)
+            end
+            if reason == "max" then getgenv().PrestigeEnabled = false end
+            return false
+        end
+
+        if prestigeV2Offer and (prestigeV2Offer.key ~= key or prestigeV2Offer.prestige ~= p) then
+            prestigeV2Offer = nil
+        end
+        local ids = prestigeV2TalentIds(snapshot.slot.Next_Talents)
+        if #ids == 0 and prestigeV2Offer then ids = prestigeV2Offer.ids end
+        if #ids == 0 then
+            -- Only prepare once. In the game UI this returns data, talent IDs,
+            -- and scroll count; the second return is the offered list itself.
+            prestigeV2Status("Preparing", "Requesting the initial talent offer once")
+            local prepared, offer = pcall(function()
+                return table.pack(GET:InvokeServer("S_Equipment", "Talents"))
+            end)
+            if prepared then
+                local updated = prestigeV2Slot(offer[1], key)
+                if updated and updated.Progression.Prestige > p then
+                    prestigeV2Status("Success", "Prestige already increased")
+                    return true
+                end
+                if updated then ids = prestigeV2TalentIds(updated.Next_Talents) end
+                if #ids == 0 then ids = prestigeV2TalentIds(offer[2]) end
+            end
+            if #ids == 0 then
+                -- A missing response does not prove that preparation failed.
+                -- Repeating Talents could reroll/spend a Memory Scroll.
+                prestigeV2Uncertain = true
+                prestigeV2Pending = {key = key, prestige = p, stage = "offer"}
+                prestigeV2Status("UnconfirmedOffer", "No usable Talents response; automatic rerolls are blocked")
+                Library:Notify("Prestige: talent offer unconfirmed. No reroll or Prestige was repeated.", 6)
+                return false
+            end
+            prestigeV2Offer = {key = key, prestige = p, ids = ids}
+        end
+
+        local talentName
+        for _, id in ipairs(ids) do
+            local name = TalentIdToName[id] or TalentIdToName[tonumber(id)]
+            if name then talentName = name break end
+        end
+        if not talentName then
+            prestigeV2Status("UnknownTalent", "Offered IDs could not be resolved; no Prestige was sent")
+            return false
+        end
+        local boost = getgenv().SelectedBoost or "Gold Boost"
+        local memory = require(game:GetService("ReplicatedStorage").Modules.Storage.Memories)
+        local boostName
+        for id, entry in pairs(memory.Boosts) do
+            if entry.Tag == boost or tostring(id) == tostring(boost) then boostName = entry.Tag break end
+        end
+        if not boostName then prestigeV2Status("InvalidBoost", tostring(boost)) return false end
+
+        -- Recheck Force Gold, slot and eligibility immediately before commit.
+        snapshot, readError = prestigeV2Snapshot()
+        if not snapshot or snapshot.key ~= key or snapshot.slot.Progression.Prestige ~= p then
+            prestigeV2Status("WaitingData", readError or "Slot/progression changed before commit")
+            return false
+        end
+        can, reason = prestigeV2Gate(snapshot)
+        if not can or (not force and not getgenv().PrestigeEnabled) then
+            prestigeV2Status("Waiting", reason or "Disabled") return false
+        end
+        prestigeV2Uncertain = true
+        prestigeV2Pending = {key = key, prestige = p, stage = "commit"}
+        lastPrestigeAttempt = tick()
+        prestigeV2Status("Submitting", talentName .. " / " .. boostName)
+        local sent, response = pcall(function()
+            return table.pack(GET:InvokeServer("S_Equipment", "Prestige", {
+                Boosts = boostName, Talents = talentName
+            }))
+        end)
+        if sent and response.n > 0 and response[1] == false then
+            prestigeV2Uncertain, prestigeV2Pending = false, nil
+            prestigeV2Status("Rejected", tostring(response[2] or "Server rejected Prestige"))
+            return false
+        end
+        -- Trust returned progression, not pcall's success flag.
+        local returned = sent and prestigeV2Slot(response[1], key)
+        local after = returned and returned.Progression.Prestige
+        local deadline = tick() + PRESTIGE_CONFIRM_TIMEOUT
+        while (not after or after <= p) and tick() < deadline do
+            local attrSlot, attrPrestige = Player:GetAttribute("Slot"), Player:GetAttribute("Prestige")
+            if attrSlot == key and type(attrPrestige) == "number" and attrPrestige > p then
+                after = attrPrestige break
+            end
+            if attrSlot ~= key then break end
+            task.wait(PRESTIGE_POLL_INTERVAL)
+        end
+        if after and after > p then
+            prestigeV2Uncertain, prestigeV2Offer, prestigeV2Pending = false, nil, nil
+            slotCache.time = 0
+            if returned then slotCache = {slot = returned, data = response[1], time = tick()} end
+            lastStatusReason, lastGoldNotifyStep, lastGoldNotifyStatus = nil, -1, nil
+            prestigeV2Status("Success", string.format("P%d -> P%d", p, after))
+            Library:Notify(string.format("Prestige confirmed: P%d -> P%d", p, after), 5)
+            if after >= 5 then getgenv().PrestigeEnabled = false end
+            return true
+        end
+        prestigeV2Status("Unconfirmed", "Request sent once; no confirmed prestige increase yet")
+        Library:Notify("Prestige not confirmed yet. Duplicate requests and rerolls are blocked.", 6)
+        return false
+    end
+
+    local function doPrestige(force)
+        -- Both the manual button and automatic worker share this same lock.
+        if prestigeV2Busy then return false end
+        prestigeV2Busy = true
+        local ok, result = pcall(prestigeV2Run, force)
+        prestigeV2Busy = false
+        if not ok then prestigeV2Status("Error", tostring(result)) end
+        return ok and result == true
+    end
+
+
+    getgenv().AstaPrestigePreflight = function()
+        -- The mission toggle is registered earlier than this worker. This entry
+        -- point is published only after all Prestige controls and locks exist.
+        syncFromOptions()
+        if not getgenv().PrestigeEnabled then return true, "Auto Prestige disabled" end
+        if prestigeV2Busy then return false, "Prestige operation in progress" end
+        local confirmed = doPrestige(false)
+        local status = getgenv().AstaPrestigeStatus
+        if confirmed then
+            task.wait(3)
+            return true, "Prestige confirmed"
+        end
+        if not status then return false, "Waiting for first Prestige result" end
+        if status.Stage == "Success" then return true, status.Message end
+        if status.Stage == "Waiting" then
+            local reason = status.Message
+            if reason == "gold" or reason == "level" or reason == "xp" or reason == "max" then
+                return true, "Prestige not eligible: " .. tostring(reason)
+            end
+        end
+        return false, status.Stage .. ": " .. tostring(status.Message)
+    end
+    prestigeV2Status("Initialized", "Worker ready; mission preflight is registered")
 
     PrestigeGroup:AddButton("Check Prestige Status", function()
         task.spawn(function()
-            getSlotData(true)
-            local currentPrestige = getCurrentPrestige()
-            local currentLevel = getLevel()
-            local currentXP = getXPPercent()
-            local currentGold = getGold()
-            local can, reason = canPrestige(currentPrestige, currentLevel, currentXP, currentGold)
-            lastStatusReason = nil
-            notifyStatus(can and "ok" or reason, currentPrestige, currentLevel, currentXP, currentGold, true)
+            syncFromOptions()
+            local snapshot, message = prestigeV2Snapshot()
+            if not snapshot then prestigeV2Status("WaitingData", message) return end
+            local can, reason, detail = prestigeV2Gate(snapshot)
+            prestigeV2Status(can and "Eligible" or "Waiting", detail or reason)
         end)
     end)
-
     PrestigeGroup:AddButton("Probe Next_Talents", function()
         task.spawn(function()
             local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
