@@ -12,7 +12,7 @@ getgenv().TownShipConfig = {
     -- ========================================================
     System = {
         ConsoleMessages = false,     -- General console switch; PrestigeDiagnostics is independent.
-        PrestigeDiagnostics = false, -- Show Prestige decisions and mission preflight results.
+        PrestigeDiagnostics = true, -- Show Prestige decisions and mission preflight results.
         PrintNotifications = false,  -- true = print old UI notifications (only when ConsoleMessages is true).
         PrintConfigLoads = false,    -- true = print every config value as it loads (only when ConsoleMessages is true).
     },
