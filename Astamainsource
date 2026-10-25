@@ -88,7 +88,7 @@ getgenv().TownShipConfig = {
                 "Time Trial",        -- Enables the Time Trial modifier.
             },
 
-            Delay = 5,               -- Seconds the mission starter waits between/start around mission actions.
+            Delay = 10,               -- Seconds the mission starter waits between/start around mission actions.
             WavesDelay = 0,          -- Extra delay in seconds for wave actions.
         },
 
@@ -96,7 +96,8 @@ getgenv().TownShipConfig = {
             Enabled = true,          -- Master toggle for the automatic boost system.
             Gold = true,             -- Enables automatic Gold boost handling.
             Luck = false,            -- Enables automatic Luck boost handling.
-            XP = false,              -- Enables automatic XP boost handling.
+            XP = true,               -- Buy 2h XP only below max level.
+            InventoryPotions = true, -- Use owned Gold/Luck/XP potions before buying.
             Delay = 1,               -- Seconds between automatic boost checks.
 
             Purchase = false,        -- Enables the separate boost-purchase feature.
@@ -530,6 +531,7 @@ elseif game.PlaceId == LOBBY_ID_CONFIG
     setToggle("AutoBoost_Gold", C.Boosts.Gold)
     setToggle("AutoBoost_Luck", C.Boosts.Luck)
     setToggle("AutoBoost_XP", C.Boosts.XP)
+    setToggle("AutoBoost_Inventory", C.Boosts.InventoryPotions)
     setValue("AutoBoost_Delay", C.Boosts.Delay)
 
     setToggle("Boost_PurchaseToggle", C.Boosts.Purchase)
@@ -2245,90 +2247,118 @@ if IsLobbyLobby() then
             return false
         end
 
-        local function runBoostCycle()
-            boostState.cycles = boostState.cycles + 1
-
-            if not boostState.selected.Gold then
-                goldDebug("gold_disabled", "Gold toggle OFF")
-                return
-            end
-
-            -- Real timer first. If active, do nothing.
-            local active = getGoldActiveState()
-            if active then
-                return
-            end
-
-            -- ULTRA-FAST START:
-            -- The old inventory sweep could spend several seconds testing
-            -- 2h -> 1h -> 30m before it even reached the market purchase.
-            -- For Auto Buy mode we go straight to the market as soon as the
-            -- real Gold timer is confirmed OFF.
-            goldRuntime.inventoryChecked = true
-
-            local boughtName, tier = buyGoldBoost()
-
-            if not boughtName then
-                return
-            end
-
-            -- Market delivery is normally immediate. Only give it a tiny
-            -- settle instead of the old 0.70 second wait.
-            task.wait(0.08)
-
-            -- First instant activation attempt.
-            local activated = useGoldBoost(
-                boughtName,
-                tier,
-                true,
-                true
-            )
-
-            -- One quick retry catches a slightly delayed inventory delivery
-            -- without buying a second boost.
-            if not activated then
-                task.wait(0.08)
-
-                activated = useGoldBoost(
-                    boughtName,
-                    tier,
-                    true,
-                    true
-                )
-            end
-
-            if activated then
-                boostState.bought = boostState.bought + 1
-
-                goldDebug(
-                    "buy_use_confirmed",
-                    string.format(
-                        "FAST BOUGHT + ACTIVE | %s",
-                        tostring(boughtName)
-                    )
-                )
-
-                Library:Notify(
-                    "[Boost] Gold boost ready",
-                    2
-                )
-            else
-                goldDebug(
-                    "buy_use_unconfirmed",
-                    string.format(
-                        "FAST BUY SENT | %s | timer not ready yet",
-                        tostring(boughtName)
-                    )
-                )
-
-                -- Short delay only. The 1s main cycle will re-check the real
-                -- timer quickly; duplicate-buy debounce still protects us.
-                goldRuntime.purchaseLockUntil = math.max(
-                    goldRuntime.purchaseLockUntil,
-                    tick() + 1.25
-                )
-            end
+        local potionState = getgenv().AstaPotionState or {types = {}}
+        getgenv().AstaPotionState = potionState
+        local inventoryPotions = true
+        local function potionType(name)
+            local n = string.lower(tostring(name))
+            if not n:find("boost", 1, true) and not n:find("2x", 1, true) then return nil end
+            if n:find("gold", 1, true) then return "Gold" end
+            if n:find("luck", 1, true) then return "Luck" end
+            if n:find("xp", 1, true) then return "XP" end
         end
+        local function readPotionInventory()
+            local key = Player:GetAttribute("Slot")
+            if not key then return nil end
+            task.wait(0.3)
+            local data = GET:InvokeServer("Functions", "Settings", "Music", 25)
+            local slot = type(data) == "table" and type(data.Slots) == "table" and data.Slots[key]
+            if Player:GetAttribute("Slot") ~= key or (data and type(data)=="table"
+                and data.Current_Slot and data.Current_Slot ~= key) then return nil end
+            local items = slot and slot.Inventory and slot.Inventory.Items
+            if type(items) ~= "table" then return nil end
+            return items, key
+        end
+        local function chooseOwned(items, kind)
+            local best, bestDuration
+            for name, count in pairs(items) do
+                if type(count) == "number" and count > 0 and potionType(name) == kind then
+                    local lower = string.lower(name)
+                    local duration = lower:find("2h", 1, true) and 7200
+                        or lower:find("1h", 1, true) and 3600 or 1800
+                    if not best or duration > bestDuration
+                        or (duration == bestDuration and name < best) then
+                        best, bestDuration = name, duration
+                    end
+                end
+            end
+            return best
+        end
+        local function xpBelowMax()
+            local p, level = Player:GetAttribute("Prestige"), Player:GetAttribute("Level")
+            return type(p)=="number" and type(level)=="number" and p>=0 and p<=5
+                and p%1==0 and level>=0 and level < 100+p*25
+        end
+        local function managePotion(kind, allowBuy, items, key)
+            if workspace:GetAttribute("Map") ~= "Lobby" or Player:GetAttribute("Slot") ~= key then return false end
+            local stateKey = tostring(Player.UserId)..":"..tostring(key)..":"..kind
+            local st = potionState.types[stateKey] or {}
+            potionState.types[stateKey] = st
+            local seconds = readBoostTimer(kind)
+            if seconds == nil then return false end
+            if seconds > 0 then
+                st.activeUntil = tick()+seconds
+                st.pendingBuy, st.pendingUse = nil, nil
+                return false
+            end
+            if st.pendingUse or tick() < (st.activeUntil or 0) then return false end
+            -- XP is also preserved in inventory at max level.
+            if kind == "XP" and not xpBelowMax() then return false end
+            local owned = chooseOwned(items, kind)
+            if owned and (inventoryPotions or st.pendingBuy) then
+                st.pendingUse = true
+                GET:InvokeServer("S_Inventory", "Item", owned)
+                print("[Potions] Use requested: "..owned.."; awaiting active timer")
+                return true
+            end
+            if owned or st.pendingBuy or not allowBuy then return false end
+            local prestige = Player:GetAttribute("Prestige")
+            if kind == "Gold" and (type(prestige)~="number" or prestige>=5) then return false end
+            local id = ({Gold=9, Luck=6, XP=3})[kind]
+            if not id then return false end
+            -- A second readable zero is required immediately before purchasing.
+            task.wait(0.3)
+            local check = readBoostTimer(kind)
+            if check == nil or check > 0 or Player:GetAttribute("Slot") ~= key
+                or workspace:GetAttribute("Map") ~= "Lobby"
+                or (kind == "XP" and not xpBelowMax()) then return false end
+            st.pendingBuy = true
+            GET:InvokeServer("S_Market", "Buy", "1_Boosts", id, 1)
+            print("[Potions] One 2h "..kind.." purchase requested; inventory confirmation required")
+            return true
+        end
+        local function runBoostCycle()
+            if potionState.busy then return end
+            potionState.busy = true
+            local ok, err = pcall(function()
+                if workspace:GetAttribute("Map") ~= "Lobby" then return end
+                local items, key = readPotionInventory()
+                if not items then return end
+                for _, kind in ipairs({"XP", "Gold", "Luck"}) do
+                    managePotion(kind, boostState.selected[kind] == true, items, key)
+                    task.wait(0.2)
+                end
+            end)
+            potionState.busy = false
+            if not ok then warn("[Potions] Request unconfirmed: "..tostring(err)) end
+        end
+        -- Route the other boost panel through the same per-type locks.
+        getgenv().AstaPotionRequest = function(name, buy)
+            local kind = potionType(name)
+            if not kind or potionState.busy then return false end
+            potionState.busy = true
+            local ok, result = pcall(function()
+                local items, key = readPotionInventory()
+                if not items then return false end
+                return managePotion(kind, buy == true, items, key)
+            end)
+            potionState.busy = false
+            return ok and result == true
+        end
+        BoostGroup:AddToggle("AutoBoost_Inventory", {
+            Text = "Auto Use Inventory Potions", Default = true,
+            Callback = function(value) inventoryPotions = value end,
+        })
 
         local boostLoopRunning = false
 
@@ -2410,7 +2440,7 @@ if IsLobbyLobby() then
         })
 
         BoostGroup:AddToggle("AutoBoost_XP", {
-            Text = "XP Boost",
+            Text = "XP Boost (below max level only)",
             Default = false,
             Callback = function(v)
                 boostState.selected.XP = v
@@ -2641,7 +2671,7 @@ local function readEquipmentData(force)
     end
     local deadline = os.clock() + 15
     while equipmentSnapshot.busy and os.clock() < deadline do task.wait(0.05) end
-    if equipmentSnapshot.busy then return recentData() end
+    if equipmentSnapshot.busy then return not force and recentData() or nil end
     if not force and equipmentSnapshot.key == key and os.clock() - equipmentSnapshot.time < 3
         and usable(equipmentSnapshot.data) then return equipmentSnapshot.data end
     equipmentSnapshot.busy = true
@@ -7698,8 +7728,8 @@ if IsLobbyLobby() then
 
     UnlockGroupLeft:AddSlider("UnlockDelaySlider", {
         Text = "Unlock Delay (sec)",
-        Default = 0.08,
-        Min = 0.01,
+        Default = 0.25,
+        Min = 0.25,
         Max = 1,
         Rounding = 2,
         Callback = function(v) unlockDelay = v end
@@ -7707,119 +7737,131 @@ if IsLobbyLobby() then
 
     UnlockGroupLeft:AddDivider()
 
-    local function unlockSingleId(id, retryCount)
-        retryCount = retryCount or 0
-        local success, err = pcall(function()
-            GET:InvokeServer("S_Equipment", "Unlock", { id })
-        end)
-        if not success and retryCount < 3 then
-            task.wait(0.2)
-            return unlockSingleId(id, retryCount + 1)
-        end
-        return success, err
-    end
-
-    local function unlockBranch(ids)
-        for _, id in ipairs(ids) do
-            unlockSingleId(id)
-            task.wait(unlockDelay)
+    local unlockEnabled = false
+    local unlockGeneration = {}
+    getgenv().AstaSkillTreeWorker = unlockGeneration
+    local treeDefinitions = require(game:GetService("ReplicatedStorage").Modules.Storage.Skills)
+    local lastTreeMessage
+    local function treeLog(message)
+        if lastTreeMessage ~= message then
+            lastTreeMessage = message
+            print("[SkillTree] " .. message)
         end
     end
-
-    local function showGoldAndWait()
-        while not (Window and Window.Holder) do
-            task.wait(0.1)
-        end
-        local goldAmount = 0
-        -- Prefer server data
-        pcall(function()
-            local data = GET:InvokeServer("Data", "Copy")
-            if data and data.Slots then
-                local slotKey = data.Current_Slot or "A"
-                local slot = data.Slots[slotKey]
-                if slot and slot.Currency and type(slot.Currency.Gold) == "number" then
-                    goldAmount = slot.Currency.Gold
+    local function unlockedSet(slot)
+        if not slot or type(slot.Skills) ~= "table" or type(slot.Skills.Unlocked) ~= "table" then return nil end
+        local set = {}
+        for _, id in pairs(slot.Skills.Unlocked) do set[tostring(id)] = true end
+        return set
+    end
+    local function treeSlot(data, key)
+        if type(data) ~= "table" or type(data.Slots) ~= "table" then return nil end
+        if data.Current_Slot and data.Current_Slot ~= key then return nil end
+        return data.Slots[key]
+    end
+    local function readTreeSlot(key)
+        local data = readEquipmentData(true)
+        if Player:GetAttribute("Slot") ~= key then return nil end
+        return treeSlot(data, key)
+    end
+    local function nextTreeNode(slot)
+        local owned = unlockedSet(slot)
+        if not owned then return nil, "Waiting for unlocked skill data" end
+        for _, category in ipairs({"Offense", "Support", "Defense"}) do
+            local side = selected[category]
+            local branch = side and branches[category .. " " .. side]
+            if branch then
+                for _, id in ipairs(branch.ids) do
+                    if not owned[id] then
+                        local def = treeDefinitions[id] or treeDefinitions[tonumber(id)]
+                        if not def then return nil, "Unknown skill " .. id end
+                        if def.Weapon and def.Weapon ~= slot.Weapon then
+                            return nil, "Selected tree requires " .. tostring(def.Weapon)
+                        end
+                        for _, field in ipairs({"Lock_Skill", "Lock_Skill_2"}) do
+                            if def[field] and owned[tostring(def[field])] then
+                                return nil, "Branch conflicts with an unlocked skill; choose the other side"
+                            end
+                        end
+                        if def.Previous and not owned[tostring(def.Previous)] then
+                            return nil, "Missing prerequisite " .. tostring(def.Previous) .. " for " .. id
+                        end
+                        return id, category
+                    end
                 end
             end
-        end)
-        -- Fallback UI if still 0
-        if goldAmount == 0 then
-            pcall(function()
-                local player = game:GetService("Players").LocalPlayer
-                local goldLabel = player.PlayerGui.Interface.Topbar.Main.Currencies.Gold.Amount
-                if goldLabel and goldLabel.Text then
-                    local t = goldLabel.Text:gsub(",", ""):upper()
-                    local num = tonumber(t:match("[%d%.]+")) or 0
-                    if t:find("B") then num = num * 1e9
-                    elseif t:find("M") then num = num * 1e6
-                    elseif t:find("K") then num = num * 1e3 end
-                    goldAmount = math.floor(num)
-                end
-            end)
         end
-        Library:Notify(string.format("💰 Gold: %s", tostring(goldAmount)), 3)
-        task.wait(0.2)
+        return nil, "Selected branches complete or no branches selected"
     end
-
+    local function treeStillEnabled(key)
+        return unlockEnabled and getgenv().AstaSkillTreeWorker == unlockGeneration
+            and workspace:GetAttribute("Map") == "Lobby"
+            and Player:GetAttribute("Slot") == key
+    end
+    local function runTreePass()
+        local key = Player:GetAttribute("Slot")
+        if not key or not treeStillEnabled(key) then return end
+        local slot = readTreeSlot(key)
+        for step = 1, 100 do
+            if not treeStillEnabled(key) then return end
+            local id, reason = nextTreeNode(slot)
+            if not id then treeLog(reason) return end
+            local confirmed = false
+            for attempt = 1, 3 do
+                if not treeStillEnabled(key) then return end
+                -- Recheck after every uncertain reply before retrying a purchase.
+                if attempt > 1 then
+                    slot = readTreeSlot(key)
+                    local owned = unlockedSet(slot)
+                    if not owned then treeLog("Waiting for confirmation data") return end
+                    if owned[id] then confirmed = true break end
+                end
+                local currentId = nextTreeNode(slot)
+                if currentId ~= id or not treeStillEnabled(key) then return end
+                task.wait(math.max(0.25, unlockDelay))
+                if not treeStillEnabled(key) then return end
+                local ok, response = pcall(function()
+                    return GET:InvokeServer("S_Equipment", "Unlock", {id})
+                end)
+                local updated = ok and treeSlot(response, key)
+                local owned = unlockedSet(updated)
+                if not owned or not owned[id] then
+                    task.wait(0.4)
+                    updated = readTreeSlot(key)
+                    owned = unlockedSet(updated)
+                end
+                if not treeStillEnabled(key) then return end
+                if not owned then treeLog("Unlock unconfirmed; waiting for data") return end
+                slot = updated
+                if owned[id] then
+                    confirmed = true
+                    treeLog("Unlocked " .. id .. " | " .. reason)
+                    break
+                end
+                if ok and response == false then break end
+                task.wait(0.5 * attempt)
+            end
+            if not confirmed then
+                treeLog("Waiting at skill " .. id .. "; check points, Gold or branch requirements")
+                return
+            end
+        end
+    end
     UnlockGroupLeft:AddToggle("UnlockSkillsToggle", {
-        Text = "Start Unlock Skills Blades",
-        Default = false,
-        Callback = function(v)
-            if not v then return end
-            if isUnlocking then
-                pcall(function()
-                    if Options and Options.UnlockSkillsToggle then
-                        Options.UnlockSkillsToggle:SetValue(false)
-                    end
-                end)
-                return
-            end
-
-            showGoldAndWait()
-
-            local queue = {}
-            if selected.Defense then
-                local side = selected.Defense
-                local branchName = "Defense " .. side
-                table.insert(queue, branches[branchName].ids)
-            end
-            if selected.Offense then
-                local side = selected.Offense
-                local branchName = "Offense " .. side
-                table.insert(queue, branches[branchName].ids)
-            end
-            if selected.Support then
-                local side = selected.Support
-                local branchName = "Support " .. side
-                table.insert(queue, branches[branchName].ids)
-            end
-
-            if #queue == 0 then
-                pcall(function()
-                    if Options and Options.UnlockSkillsToggle then
-                        Options.UnlockSkillsToggle:SetValue(false)
-                    end
-                end)
-                return
-            end
-
-            isUnlocking = true
-            task.spawn(function()
-                for i, ids in ipairs(queue) do
-                    unlockBranch(ids)
-                    if i < #queue then
-                        task.wait(unlockDelay)
-                    end
-                end
-                isUnlocking = false
-                pcall(function()
-                    if Options and Options.UnlockSkillsToggle then
-                        Options.UnlockSkillsToggle:SetValue(false)
-                    end
-                end)
-            end)
-        end
+        Text = "Auto Skill Tree — Offense First", Default = false,
+        Callback = function(value) unlockEnabled = value end,
     })
+    task.spawn(function()
+        while getgenv().AstaSkillTreeWorker == unlockGeneration do
+            if unlockEnabled and not isUnlocking then
+                isUnlocking = true
+                local ok, err = pcall(runTreePass)
+                isUnlocking = false
+                if not ok then treeLog("Error: " .. tostring(err)) end
+            end
+            task.wait(unlockEnabled and 5 or 0.5)
+        end
+    end)
 
     -- Auto Equip Skills: unlocked abilities, current weapon, verified hotbar.
     local EquipSkillsGroup = Tabs.Session:AddLeftGroupbox("Auto Equip Skills")
@@ -8400,16 +8442,12 @@ end)
     startReadyCheck()
 
     local function purchaseBoost(boostName)
-        local data = BOOST_MAP[boostName]
-        if not data then return false end
-        if not isReady then return false end
-        local args = {"S_Market", "Buy", "1_Boosts", data.id, purchaseAmount}
-        return pcall(function() GET:InvokeServer(unpack(args)) end)
+        local request = getgenv().AstaPotionRequest
+        return request and request(boostName, true) or false
     end
-
     local function useBoost(boostName)
-        local args = {"S_Inventory", "Item", boostName}
-        return pcall(function() GET:InvokeServer(unpack(args)) end)
+        local request = getgenv().AstaPotionRequest
+        return request and request(boostName, false) or false
     end
 
     local function IsActuallyVisible(gui)
@@ -8478,22 +8516,10 @@ end)
                     if not autoUseActive then break end
                 end
 
-                local durations = {"2h", "1h", "30m"}
-                local roundsPerDuration = 5
-                for _, dur in ipairs(durations) do
+                for _, kind in ipairs({"Gold", "Luck", "XP"}) do
                     if not autoUseActive then break end
-                    for round = 1, roundsPerDuration do
-                        if not autoUseActive then break end
-                        if not isReady then
-                            task.wait(0.05)
-                            break
-                        end
-                        -- GOLD ONLY
-                        local goldName = "2x Gold Boost [" .. dur .. "]"
-                        useBoost(goldName)
-                        task.wait()
-                    end
-                    if not autoUseActive then break end
+                    useBoost("2x " .. kind .. " Boost [2h]")
+                    task.wait(0.2)
                 end
                 break
             end
@@ -9036,11 +9062,22 @@ if IsLobbyLobby() then
 
     -- Auto Prestige: initial Talents offer -> offered talent -> confirmed Prestige.
     -- One offer per slot/prestige, one commit, then observe before sending again.
+    local prestigeSessionKey = "AstaPrestigeSafeSession_" .. tostring(Player.UserId)
+    local prestigeSession = getgenv()[prestigeSessionKey] or {}
+    getgenv()[prestigeSessionKey] = prestigeSession
+    local prestigeGeneration = {}
+    prestigeSession.generation = prestigeGeneration
     local prestigeV2Busy = false
-    local prestigeV2Offer = nil
-    local prestigeV2Uncertain = false
-    local prestigeV2Pending = nil
-    local PRESTIGE_CONFIRM_TIMEOUT = 20
+    local prestigeV2Offer = prestigeSession.offer
+    local prestigeV2Uncertain = prestigeSession.uncertain or false
+    local prestigeV2Pending = prestigeSession.pending
+    local function savePrestigeSession()
+        prestigeSession.offer, prestigeSession.pending, prestigeSession.uncertain =
+            prestigeV2Offer, prestigeV2Pending, prestigeV2Uncertain
+    end
+    local prestigeRejects = prestigeSession.rejects or {}
+    prestigeSession.rejects = prestigeRejects
+    local PRESTIGE_CONFIRM_TIMEOUT = 30
     local PRESTIGE_POLL_INTERVAL = 1
 
     local function prestigeV2Status(stage, message)
@@ -9081,6 +9118,21 @@ if IsLobbyLobby() then
                     slotCache = {slot = slot, data = values[i], time = tick()}
                     return {slot = slot, key = key, data = values[i], source = "server_data", goldExact = true}
                 end
+            end
+        end
+        -- Data/Copy can return nothing in the executor context. Recover full
+        -- account data through the shared settings reader, never by rerolling.
+        local fetched, account = pcall(function() return readEquipmentData(true) end)
+        if fetched then
+            local slot, key = prestigeV2Slot(account, expected)
+            if slot and type(slot.Progression.Level) == "number"
+                and type(slot.Currency) == "table" and type(slot.Currency.Gold) == "number"
+                and Player:GetAttribute("Slot") == expected
+                and slot.Progression.Prestige == Player:GetAttribute("Prestige")
+                and workspace:GetAttribute("Map") == "Lobby" then
+                slotCache = {slot = slot, data = account, time = tick()}
+                return {slot = slot, key = key, data = account,
+                    source = "settings_account_data", goldExact = true}
             end
         end
         -- Eligibility is max level + the configured Gold threshold only.
@@ -9163,6 +9215,17 @@ if IsLobbyLobby() then
                 if observed >= 5 then getgenv().PrestigeEnabled = false end
                 return true
             end
+            if pending and pending.stage == "commit" then
+                local checked, account = pcall(function() return readEquipmentData(true) end)
+                local fresh = checked and prestigeV2Slot(account, pending.key)
+                if fresh and Player:GetAttribute("Slot") == pending.key
+                    and fresh.Progression.Prestige > pending.prestige then
+                    prestigeV2Uncertain, prestigeV2Offer, prestigeV2Pending = false, nil, nil
+                    prestigeV2Status("Success", "Prestige increase confirmed from fresh account data")
+                    if fresh.Progression.Prestige >= 5 then getgenv().PrestigeEnabled = false end
+                    return true
+                end
+            end
             if pending and pending.stage == "offer" then
                 local recovered = prestigeV2Snapshot()
                 if recovered and recovered.key == pending.key
@@ -9206,12 +9269,37 @@ if IsLobbyLobby() then
         local ids = prestigeV2TalentIds(snapshot.slot.Next_Talents)
         if #ids == 0 and prestigeV2Offer then ids = prestigeV2Offer.ids end
         if #ids == 0 then
+            -- Strict no-scroll mode: an initial request is only allowed when
+            -- a fresh inventory confirms there are no scrolls to consume.
+            local inventory = snapshot.slot.Inventory
+            local items = type(inventory) == "table" and inventory.Items
+            if type(items) ~= "table" or snapshot.source == "live_attributes_and_gold" then
+                prestigeV2Status("WaitingData", "Fresh inventory required before preparing Talents")
+                return false
+            end
+            local scrolls = 0
+            for name, count in pairs(items) do
+                local lower = string.lower(tostring(name))
+                if lower:find("scroll", 1, true) and
+                    (lower:find("memory", 1, true) or lower:find("prestige", 1, true)) then
+                    if type(count) ~= "number" or count ~= count or count < 0 then
+                        prestigeV2Status("WaitingData", "Scroll quantity could not be verified")
+                        return false
+                    end
+                    scrolls = scrolls + count
+                end
+            end
+            if scrolls > 0 then
+                prestigeV2Status("ScrollProtected", "No existing talent offer; Talents blocked while Scrolls are owned")
+                return false
+            end
             -- Only prepare once. In the game UI this returns data, talent IDs,
             -- and scroll count; the second return is the offered list itself.
             -- Lock before invoking: even an interrupted response must not reroll.
             prestigeV2Uncertain = true
             prestigeV2Pending = {key = key, prestige = p, stage = "offer"}
-            prestigeV2Status("Preparing", "Requesting initial Talents once; no Scroll requirement")
+            savePrestigeSession()
+            prestigeV2Status("Preparing", "Zero Scrolls verified; requesting initial Talents once")
             local prepared, offer = pcall(function()
                 return table.pack(GET:InvokeServer("S_Equipment", "Talents"))
             end)
@@ -9224,6 +9312,14 @@ if IsLobbyLobby() then
                 end
                 if updated then ids = prestigeV2TalentIds(updated.Next_Talents) end
                 if #ids == 0 then ids = prestigeV2TalentIds(offer[2]) end
+            end
+            if #ids == 0 then
+                task.wait(0.5)
+                local recovered = prestigeV2Snapshot()
+                if recovered and recovered.key == key
+                    and recovered.slot.Progression.Prestige == p then
+                    ids = prestigeV2TalentIds(recovered.slot.Next_Talents)
+                end
             end
             if #ids == 0 then
                 -- A missing response does not prove that preparation failed.
@@ -9263,11 +9359,13 @@ if IsLobbyLobby() then
             return false
         end
         can, reason = prestigeV2Gate(snapshot)
-        if not can or (not force and not getgenv().PrestigeEnabled) then
+        if not can or prestigeSession.generation ~= prestigeGeneration
+            or (not force and not getgenv().PrestigeEnabled) then
             prestigeV2Status("Waiting", reason or "Disabled") return false
         end
         prestigeV2Uncertain = true
         prestigeV2Pending = {key = key, prestige = p, stage = "commit"}
+        savePrestigeSession()
         lastPrestigeAttempt = tick()
         prestigeV2Status("Submitting", talentName .. " / " .. boostName)
         local sent, response = pcall(function()
@@ -9276,8 +9374,17 @@ if IsLobbyLobby() then
             }))
         end)
         if sent and response.n > 0 and response[1] == false then
-            -- Keep the attempt locked; do not resubmit automatically.
-            prestigeV2Status("Rejected", tostring(response[2] or "Server rejected Prestige"))
+            local rejectKey = tostring(key) .. ":" .. tostring(p)
+            prestigeRejects[rejectKey] = (prestigeRejects[rejectKey] or 0) + 1
+            if prestigeRejects[rejectKey] < 3 then
+                -- Explicit rejection differs from a missing/ambiguous response.
+                -- Keep the existing offer and recheck all eligibility next cycle.
+                prestigeV2Uncertain, prestigeV2Pending = false, nil
+                prestigeV2Status("Rejected", "Server rejected commit; bounded retry after cooldown: "
+                    .. tostring(response[2] or "no reason returned"))
+            else
+                prestigeV2Status("Paused", "Three explicit rejections; no further automatic commits")
+            end
             return false
         end
         -- Trust returned progression, not pcall's success flag.
@@ -9309,10 +9416,12 @@ if IsLobbyLobby() then
 
     local function doPrestige(force)
         -- Both the manual button and automatic worker share this same lock.
-        if prestigeV2Busy then return false end
-        prestigeV2Busy = true
+        if prestigeV2Busy or prestigeSession.busy
+            or prestigeSession.generation ~= prestigeGeneration then return false end
+        prestigeV2Busy, prestigeSession.busy = true, true
         local ok, result = pcall(prestigeV2Run, force)
-        prestigeV2Busy = false
+        savePrestigeSession()
+        prestigeV2Busy, prestigeSession.busy = false, false
         if not ok then prestigeV2Status("Error", tostring(result)) end
         return ok and result == true
     end
