@@ -1,3 +1,16 @@
+local source = [==========[
+do
+    local players = game:GetService("Players")
+    local deadline = os.clock() + 30
+    while not players.LocalPlayer and os.clock() < deadline do
+        task.wait(0.1)
+    end
+    if not players.LocalPlayer then
+        warn("[Asta] LocalPlayer unavailable after 30s. Run this script in the Roblox client after joining.")
+        return
+    end
+end
+
 -- ============================================================
 -- ASTA v1 LOADER
 -- EDIT YOUR SETTINGS HERE.
@@ -162,6 +175,11 @@ getgenv().TownShipConfig = {
 
         Prestige = {
             Enabled = true,          -- Enables automatic prestige.
+            RejoinOnFailure = true,  -- Rejoin only while all Prestige requirements are verified.
+            RejoinAfter = 60,        -- Seconds of stalled eligible Prestige before Lobby recovery.
+            NoScrollMode = false,
+            AllowScrollFallback = true, -- One Talents request after free recovery is exhausted.
+            ScrollFallbackAfterRejoin = true, -- Try the existing offer and Lobby rejoin before spending.
             ForceGold = true,        -- Forces/uses the custom Gold requirement values below.
 
             GoldRequirements = {
@@ -192,11 +210,11 @@ getgenv().TownShipConfig = {
                 "GoldeeenlionBlox",  -- This username is treated as a sender account.
             },
 
-            ReceiverSend = true,     -- Enables repeated trade invites/actions for Receiver-list accounts.
-            ReceiverAccept = true,   -- Enables automatic trade acceptance for Receiver-list accounts.
+            ReceiverSend = false,     -- Enables repeated trade invites/actions for Receiver-list accounts.
+            ReceiverAccept = false,   -- Enables automatic trade acceptance for Receiver-list accounts.
 
-            SenderSend = true,       -- Enables repeated trade invites/actions for Sender-list accounts.
-            SenderAccept = true,     -- Enables automatic trade acceptance for Sender-list accounts.
+            SenderSend = false,       -- Enables repeated trade invites/actions for Sender-list accounts.
+            SenderAccept = false,     -- Enables automatic trade acceptance for Sender-list accounts.
 
             CurrentPlayersSend = false,   -- Enables Send Trade for the Current Players selection.
             CurrentPlayersAccept = false, -- Enables Auto Accept for the Current Players selection.
@@ -205,7 +223,7 @@ getgenv().TownShipConfig = {
             History = "Off",         -- Trading history setting sent to the game. "On" or "Off".
 
             AutoTrade = false,       -- Enables the manual Auto Trade item-giving worker.
-            AcceptTrade = true,      -- Automatically readies/accepts the active trade.
+            AcceptTrade = false,      -- Automatically readies/accepts the active trade.
 
             Items = {                -- Items the sender should place into the trade.
                 "Memory Scroll",     -- Trade Memory Scrolls.
@@ -380,6 +398,10 @@ getgenv().TownShipConfig = {
 
 -- NOTE: Internal TownShipConfig / TownShip folder identifiers are kept
 -- for backward compatibility with existing saved files and teleport logic.
+if type(getgenv().AstaPrestigeResumeConfig) == "table" then
+    getgenv().TownShipConfig = getgenv().AstaPrestigeResumeConfig
+    getgenv().AstaPrestigeResumeConfig = nil
+end
 local CONFIG = getgenv().TownShipConfig
 getgenv().AstaPrestigePreflight = nil
 getgenv().AstaPrestigeStatus = nil
@@ -9064,26 +9086,77 @@ if IsLobbyLobby() then
     end
 
     -- Auto Prestige: initial Talents offer -> offered talent -> confirmed Prestige.
-    -- One offer per slot/prestige, one commit, then observe before sending again.
+    -- Reconcile late replies and current offers; retries and Scroll fallback are bounded.
     local prestigeSessionKey = "AstaPrestigeSafeSession_" .. tostring(Player.UserId)
     local prestigeSession = getgenv()[prestigeSessionKey] or {}
+    if prestigeSession.jobId and prestigeSession.jobId ~= game.JobId then prestigeSession = {} end
+    prestigeSession.jobId = game.JobId
     getgenv()[prestigeSessionKey] = prestigeSession
     local prestigeGeneration = {}
     prestigeSession.generation = prestigeGeneration
+    prestigeSession.busy = false -- The new generation owns its own busy lock.
     local prestigeV2Busy = false
     local prestigeV2Offer = prestigeSession.offer
-    local prestigeV2Uncertain = prestigeSession.uncertain or false
+    local prestigeV2Uncertain = prestigeSession.pending ~= nil
     local prestigeV2Pending = prestigeSession.pending
     local function savePrestigeSession()
+        if prestigeSession.generation ~= prestigeGeneration then return end
         prestigeSession.offer, prestigeSession.pending, prestigeSession.uncertain =
             prestigeV2Offer, prestigeV2Pending, prestigeV2Uncertain
     end
     local prestigeRejects = prestigeSession.rejects or {}
     prestigeSession.rejects = prestigeRejects
-    local PRESTIGE_CONFIRM_TIMEOUT = 30
+    local PRESTIGE_CONFIRM_TIMEOUT = 6
+    local prestigeEligibleSince, prestigeEligibleKey
+    local prestigeRecoveryAt = 0
+    local prestigeTeleporting = false
+    local prestigeConfig = CONFIG.Lobby and CONFIG.Lobby.Prestige or {}
+    prestigeConfig.NoScrollMode, prestigeConfig.AllowScrollFallback = false, true
+    local recoveryLedger = getgenv().AstaPrestigeLastResortLedger or {}
+    local savedLedger = prestigeConfig.RecoveryLedger
+    if type(savedLedger) == "table" then
+        for key, restored in pairs(savedLedger) do
+            if type(key) == "string" and type(restored) == "table" and restored.Key == key then
+                local current = recoveryLedger[key]
+                if current then
+                    current.ScrollAttempted = current.ScrollAttempted or restored.ScrollAttempted == true
+                    current.RejoinCompleted = current.RejoinCompleted or restored.RejoinCompleted == true
+                    current.RejoinUnavailable = current.RejoinUnavailable or restored.RejoinUnavailable == true
+                    current.RejoinFromJob = current.RejoinFromJob or restored.RejoinFromJob
+                    current.RejoinFailures = math.max(current.RejoinFailures or 0, restored.RejoinFailures or 0)
+                else
+                    recoveryLedger[key] = table.clone(restored)
+                end
+            end
+        end
+    end
+    getgenv().AstaPrestigeLastResortLedger = recoveryLedger
+    prestigeConfig.RecoveryLedger = recoveryLedger
+    local resumeProof = getgenv().AstaPrestigeResumeProof
+    getgenv().AstaPrestigeResumeProof = nil
+    local function lastResortState(snapshot)
+        local key = tostring(Player.UserId) .. ":" .. tostring(snapshot.key)
+            .. ":" .. tostring(snapshot.slot.Progression.Prestige)
+        local state = recoveryLedger[key] or {Key = key, ScrollAttempted = false}
+        local restored = prestigeConfig.RecoveryState
+        if type(restored) == "table" and restored.Key == key and restored ~= state then
+            state.ScrollAttempted = state.ScrollAttempted or restored.ScrollAttempted == true
+            state.RejoinCompleted = state.RejoinCompleted or restored.RejoinCompleted == true
+            state.RejoinUnavailable = state.RejoinUnavailable or restored.RejoinUnavailable == true
+            state.RejoinFromJob = restored.RejoinFromJob or state.RejoinFromJob
+            state.RejoinFailures = math.max(state.RejoinFailures or 0, restored.RejoinFailures or 0)
+        end
+        if resumeProof == key or (state.RejoinFromJob and state.RejoinFromJob ~= game.JobId) then
+            state.RejoinCompleted = true
+        end
+        recoveryLedger[key], prestigeConfig.RecoveryState = state, state
+        return state
+    end
+    local prestigeV2Snapshot, prestigeV2Gate, scrollFallbackReady
     local PRESTIGE_POLL_INTERVAL = 1
 
     local function prestigeV2Status(stage, message)
+        if prestigeSession.generation ~= prestigeGeneration then return end
         local previous = getgenv().AstaPrestigeStatus
         getgenv().AstaPrestigeStatus = {Stage = stage, Message = message, Time = os.clock()}
         if CONFIG.System and CONFIG.System.PrestigeDiagnostics
@@ -9103,20 +9176,91 @@ if IsLobbyLobby() then
         return slot, key
     end
 
-    local function prestigeV2Snapshot()
+    local prestigeReadFlights = {}
+    prestigeSession.readFlights = prestigeReadFlights
+    local function prestigeRead(name, callback, timeout)
+        local flight = prestigeReadFlights[name]
+        if flight and flight.done and tick() - flight.completedAt > 2 then
+            prestigeReadFlights[name], flight = nil, nil
+        end
+        if not flight then
+            flight = {done = false, startedAt = tick()}
+            prestigeReadFlights[name] = flight
+            task.spawn(function()
+                flight.ok, flight.result = pcall(callback)
+                flight.completedAt, flight.done = tick(), true
+            end)
+        end
+        local deadline = tick() + timeout
+        while not flight.done and tick() < deadline
+            and prestigeSession.generation == prestigeGeneration do task.wait(0.05) end
+        if not flight.done or prestigeSession.generation ~= prestigeGeneration then return false, "Read timed out" end
+        if prestigeReadFlights[name] == flight then prestigeReadFlights[name] = nil end
+        if flight.completedAt - flight.startedAt > 15 then return false, "Read exceeded freshness limit" end
+        return flight.ok, flight.result
+    end
+    local function prestigeInvoke(action, payload, force)
+        local pending = prestigeV2Pending
+        if not pending or prestigeSession.generation ~= prestigeGeneration then return false, "Worker replaced" end
+        if action == "Talents" then
+            local snapshot, readError = prestigeV2Snapshot()
+            if not snapshot then return false, readError end
+            local eligible, reason = prestigeV2Gate(snapshot)
+            if pending.expectNoOffer and type(snapshot.slot.Next_Talents) == "table"
+                and next(snapshot.slot.Next_Talents) ~= nil then
+                return false, "An existing offer appeared; no Scroll request needed"
+            end
+            local allowed, blocked = scrollFallbackReady(snapshot)
+            if not eligible or not allowed then return false, blocked or reason end
+            if prestigeSession.generation ~= prestigeGeneration or prestigeTeleporting
+                or (not force and not getgenv().PrestigeEnabled)
+                or snapshot.key ~= pending.key or snapshot.slot.Progression.Prestige ~= pending.prestige
+                or Player:GetAttribute("Slot") ~= snapshot.key
+                or Player:GetAttribute("Prestige") ~= snapshot.slot.Progression.Prestige
+                or prestigeV2Pending ~= pending
+                or pending.inFlight then return false, "State changed before Scroll fallback" end
+            -- Persist before dispatch, even if the response is lost or the script reloads.
+            local state = lastResortState(snapshot)
+            state.ScrollAttempted, state.ScrollSentAt = true, tick()
+            savePrestigeSession()
+            prestigeV2Status("ScrollLastResort", "Free recovery exhausted; one Talents request may consume a Memory Scroll")
+        end
+        pending.inFlight = true
+        savePrestigeSession()
+        local flight = {done = false}
+        pending.flight = flight
+        task.spawn(function()
+            flight.ok, flight.result = pcall(function()
+                if payload then return table.pack(GET:InvokeServer("S_Equipment", action, payload)) end
+                return table.pack(GET:InvokeServer("S_Equipment", action))
+            end)
+            flight.done, pending.inFlight = true, false
+        end)
+        local deadline = tick() + 5
+        while not flight.done and tick() < deadline
+            and prestigeSession.generation == prestigeGeneration do task.wait(0.05) end
+        if prestigeSession.generation ~= prestigeGeneration then return false, "Worker replaced" end
+        if not flight.done then return false, "Remote still pending; observing before any retry" end
+        return flight.ok, flight.result
+    end
+
+    prestigeV2Snapshot = function()
         if workspace:GetAttribute("Map") ~= "Lobby" then
             return nil, "Waiting for the Lobby before Prestige"
         end
         local expected = Player:GetAttribute("Slot")
         if expected == nil then return nil, "Current slot is unknown" end
-        local ok, values = pcall(function()
+        local ok, values = prestigeRead("copy:" .. tostring(expected), function()
             return table.pack(GET:InvokeServer("Data", "Copy"))
-        end)
+        end, 3)
         if ok then
             for i = 1, values.n do
                 local slot, key = prestigeV2Slot(values[i], expected)
                 if slot and type(slot.Progression.Level) == "number"
-                    and type(slot.Currency) == "table" and type(slot.Currency.Gold) == "number" then
+                    and type(slot.Progression.XP) == "number"
+                    and type(slot.Currency) == "table" and type(slot.Currency.Gold) == "number"
+                    and Player:GetAttribute("Slot") == expected
+                    and workspace:GetAttribute("Map") == "Lobby" then
                     -- Update all old status readers from one current snapshot.
                     slotCache = {slot = slot, data = values[i], time = tick()}
                     return {slot = slot, key = key, data = values[i], source = "server_data", goldExact = true}
@@ -9125,10 +9269,13 @@ if IsLobbyLobby() then
         end
         -- Data/Copy can return nothing in the executor context. Recover full
         -- account data through the shared settings reader, never by rerolling.
-        local fetched, account = pcall(function() return readEquipmentData(true) end)
+        local fetched, account = prestigeRead("account:" .. tostring(expected), function()
+            return readEquipmentData(true)
+        end, 12)
         if fetched then
             local slot, key = prestigeV2Slot(account, expected)
             if slot and type(slot.Progression.Level) == "number"
+                and type(slot.Progression.XP) == "number"
                 and type(slot.Currency) == "table" and type(slot.Currency.Gold) == "number"
                 and Player:GetAttribute("Slot") == expected
                 and slot.Progression.Prestige == Player:GetAttribute("Prestige")
@@ -9164,7 +9311,7 @@ if IsLobbyLobby() then
         }
     end
 
-    local function prestigeV2Gate(snapshot)
+    prestigeV2Gate = function(snapshot)
         local s = snapshot.slot
         local progression = s.Progression
         local p, level = progression.Prestige, progression.Level
@@ -9188,12 +9335,40 @@ if IsLobbyLobby() then
                 return false, "data", "Waiting for exact Gold; abbreviated/unknown balances are not accepted"
             end
         end
-        -- 100 here disables the OLD XP condition; eligibility is level + Gold.
-        -- Gold is still compared using the original thresholds, in millions.
-        local can, reason = canPrestige(p, level, 100, s.Currency.Gold)
-        return can, reason, nil, 100
+        local percent = 100
+        if level == maxLevel then
+            local ok, requiredXP = pcall(function()
+                return require(game:GetService("ReplicatedStorage").Modules.Utilities.Shared).XP(maxLevel, p)
+            end)
+            if not ok or not validNumber(requiredXP) or requiredXP <= 0 or not validNumber(progression.XP) then
+                return false, "data", "Waiting for verified last-level XP"
+            end
+            percent = math.floor(progression.XP / requiredXP * 100)
+            if progression.XP < requiredXP then
+                return false, "xp", string.format("Last-level XP %.0f/%.0f; need %.0f more",
+                    progression.XP, requiredXP, requiredXP - progression.XP), percent
+            end
+        end
+        local can, reason = canPrestige(p, level, percent, s.Currency.Gold)
+        return can, reason, nil, percent
     end
 
+    scrollFallbackReady = function(snapshot)
+        if prestigeConfig.AllowScrollFallback == false then return false, "Scroll fallback disabled" end
+        local state = lastResortState(snapshot)
+        if state.ScrollAttempted then return false, "One Scroll fallback already sent for this slot/prestige" end
+        if not state.RejoinCompleted and not state.RejoinUnavailable then
+            return false, "Trying existing offers and Lobby recovery before using a Scroll"
+        end
+        local inventory = snapshot.slot.Inventory
+        local items = type(inventory) == "table" and inventory.Items
+        if type(items) ~= "table" then return false, "Waiting for verified Memory Scroll inventory" end
+        local amount = items["Memory Scroll"] or 0
+        if type(amount) ~= "number" or amount ~= amount or amount < 1 or amount >= math.huge then
+            return false, "No Memory Scroll available for last-resort recovery"
+        end
+        return true
+    end
     local function prestigeV2TalentIds(value)
         if type(value) ~= "table" then return {} end
         local ids = {}
@@ -9206,7 +9381,54 @@ if IsLobbyLobby() then
     end
 
     local function prestigeV2Run(force)
+        if prestigeSession.generation ~= prestigeGeneration or prestigeTeleporting then return false end
         if not force and not getgenv().PrestigeEnabled then return false end
+        local prior = prestigeV2Pending
+        local flight = prior and prior.flight
+        if flight and flight.done and flight.ok then
+            local returned = prestigeV2Slot(flight.result[1], prior.key)
+            if returned and Player:GetAttribute("Slot") == prior.key
+                and returned.Progression.Prestige > prior.prestige then
+                prestigeV2Uncertain, prestigeV2Offer, prestigeV2Pending = false, nil, nil
+                prestigeEligibleSince, prestigeEligibleKey = nil, nil
+                savePrestigeSession()
+                prestigeV2Status("Success", "Late Prestige response confirms progression increase")
+                if returned.Progression.Prestige >= 5 then getgenv().PrestigeEnabled = false end
+                return true
+            end
+        end
+        local initial, initialError = prestigeV2Snapshot()
+        if not initial then prestigeV2Status("WaitingData", initialError) return false end
+        if prestigeSession.generation ~= prestigeGeneration then return false end
+        local saved = prestigeV2Pending
+        if saved and initial.key == saved.key and initial.slot.Progression.Prestige > saved.prestige then
+            prestigeV2Uncertain, prestigeV2Offer, prestigeV2Pending = false, nil, nil
+            prestigeEligibleSince, prestigeEligibleKey = nil, nil
+            prestigeV2Status("Success", "Prestige increase confirmed from fresh account data")
+            if initial.slot.Progression.Prestige >= 5 then getgenv().PrestigeEnabled = false end
+            return true
+        end
+        if saved and (saved.key ~= initial.key or saved.prestige ~= initial.slot.Progression.Prestige) then
+            prestigeV2Uncertain, prestigeV2Offer, prestigeV2Pending = false, nil, nil
+            savePrestigeSession()
+        end
+        local ready, waitReason, waitDetail = prestigeV2Gate(initial)
+        if not ready then
+            prestigeEligibleSince, prestigeEligibleKey = nil, nil
+            if saved and saved.inFlight then
+                prestigeV2Status("Observing", "Waiting for outstanding request before allowing a mission")
+                return false
+            end
+            prestigeV2Uncertain, prestigeV2Offer, prestigeV2Pending = false, nil, nil
+            savePrestigeSession()
+            prestigeV2Status("Waiting", waitDetail or waitReason)
+            getgenv().AstaPrestigeStatus.Reason = waitReason
+            if waitReason == "max" then getgenv().PrestigeEnabled = false end
+            return false
+        end
+        lastResortState(initial)
+        local identity = tostring(initial.key) .. ":" .. tostring(initial.slot.Progression.Prestige)
+        if prestigeEligibleKey ~= identity then prestigeEligibleKey, prestigeEligibleSince = identity, tick() end
         if prestigeV2Uncertain then
             local pending = prestigeV2Pending
             local observed = Player:GetAttribute("Prestige")
@@ -9218,19 +9440,8 @@ if IsLobbyLobby() then
                 if observed >= 5 then getgenv().PrestigeEnabled = false end
                 return true
             end
-            if pending and pending.stage == "commit" then
-                local checked, account = pcall(function() return readEquipmentData(true) end)
-                local fresh = checked and prestigeV2Slot(account, pending.key)
-                if fresh and Player:GetAttribute("Slot") == pending.key
-                    and fresh.Progression.Prestige > pending.prestige then
-                    prestigeV2Uncertain, prestigeV2Offer, prestigeV2Pending = false, nil, nil
-                    prestigeV2Status("Success", "Prestige increase confirmed from fresh account data")
-                    if fresh.Progression.Prestige >= 5 then getgenv().PrestigeEnabled = false end
-                    return true
-                end
-            end
-            if pending and pending.stage == "offer" then
-                local recovered = prestigeV2Snapshot()
+            if pending and pending.stage == "offer" and not pending.inFlight then
+                local recovered = initial
                 if recovered and recovered.key == pending.key
                     and recovered.slot.Progression.Prestige == pending.prestige then
                     local ids = prestigeV2TalentIds(recovered.slot.Next_Talents)
@@ -9242,13 +9453,28 @@ if IsLobbyLobby() then
                 end
             end
         end
+        if prestigeV2Uncertain and prestigeV2Pending and prestigeV2Pending.stage == "commit" then
+            local pending = prestigeV2Pending
+            local ids = prestigeV2TalentIds(initial.slot.Next_Talents)
+            prestigeSession.commitRetries = prestigeSession.commitRetries or {}
+            local retryKey = tostring(pending.key) .. ":" .. tostring(pending.prestige)
+            if tick() - (pending.sentAt or 0) >= math.max(8, tonumber(PrestigeCooldown) or 8)
+                and not pending.inFlight and #ids > 0 and not prestigeSession.commitRetries[retryKey] then
+                prestigeSession.commitRetries[retryKey] = true
+                prestigeV2Offer = {key = pending.key, prestige = pending.prestige, ids = ids}
+                prestigeV2Uncertain, prestigeV2Pending = false, nil
+                savePrestigeSession()
+                prestigeV2Status("RetryReady", "Fresh account still eligible; retrying latest offered talent once")
+            end
+        end
         if prestigeV2Uncertain and prestigeV2Pending then
             local pending = prestigeV2Pending
             prestigeSession.scrollFallbacks = prestigeSession.scrollFallbacks or {}
             local attemptKey = tostring(pending.key) .. ":" .. tostring(pending.prestige)
             local waitSeconds = pending.stage == "commit" and 30 or 3
-            if tick() - (pending.sentAt or 0) >= waitSeconds
-                and not prestigeSession.scrollFallbacks[attemptKey] then
+            if prestigeConfig.NoScrollMode ~= true and prestigeConfig.AllowScrollFallback ~= false and not pending.inFlight
+                and tick() - (pending.sentAt or 0) >= waitSeconds
+                and not prestigeSession.scrollFallbacks[attemptKey] and scrollFallbackReady(initial) then
                 local snapshot = prestigeV2Snapshot()
                 local eligible = snapshot and prestigeV2Gate(snapshot)
                 if eligible and snapshot.key == pending.key
@@ -9257,11 +9483,12 @@ if IsLobbyLobby() then
                     and (force or getgenv().PrestigeEnabled) then
                     -- Persist before sending: one extra Talents request per stage.
                     prestigeSession.scrollFallbacks[attemptKey] = true
+                    -- A missing reroll response must be recovered as an offer, never a commit.
+                    prestigeV2Offer = nil
+                    prestigeV2Pending = {key = pending.key, prestige = pending.prestige, stage = "offer", sentAt = tick()}
                     savePrestigeSession()
                     prestigeV2Status("ScrollFallback", "One extra Talents request; may consume a Memory Scroll")
-                    local ok, response = pcall(function()
-                        return table.pack(GET:InvokeServer("S_Equipment", "Talents"))
-                    end)
+                    local ok, response = prestigeInvoke("Talents", nil, force)
                     local updated = ok and prestigeV2Slot(response[1], pending.key)
                     local ids = updated and prestigeV2TalentIds(updated.Next_Talents) or {}
                     if #ids == 0 and ok then ids = prestigeV2TalentIds(response[2]) end
@@ -9271,16 +9498,16 @@ if IsLobbyLobby() then
                         savePrestigeSession()
                         prestigeV2Status("Recovered", "Fallback offer ready; eligibility will be rechecked")
                     end
+                    return false -- Re-read after reroll; the initial snapshot predates this offer.
                 end
             end
         end
         if prestigeV2Uncertain then
-            prestigeV2Status("Paused", "Previous request is unconfirmed; no duplicate request was sent")
+            prestigeV2Status("Paused", "Waiting for fresh progression/Next_Talents; Lobby recovery remains active")
             return false
         end
         if tick() - lastPrestigeAttempt < MIN_PRESTIGE_GAP then return false end
-        local snapshot, readError = prestigeV2Snapshot()
-        if not snapshot then prestigeV2Status("WaitingData", readError) return false end
+        local snapshot, readError = initial, nil
         local p, key = snapshot.slot.Progression.Prestige, snapshot.key
         prestigeV2Status("Checking", string.format("Slot %s | P%d | Level %d | Gold %.0f | ForceGold=%s | RequiredGold=%.0f | Source=%s",
             tostring(key), p, snapshot.slot.Progression.Level, snapshot.slot.Currency.Gold,
@@ -9290,6 +9517,7 @@ if IsLobbyLobby() then
         local can, reason, detail, xp = prestigeV2Gate(snapshot)
         if not can then
             prestigeV2Status("Waiting", detail or reason)
+            getgenv().AstaPrestigeStatus.Reason = reason
             if reason ~= "data" then
                 notifyStatus(reason, p, snapshot.slot.Progression.Level, xp or 0,
                     snapshot.slot.Currency.Gold, force)
@@ -9301,19 +9529,27 @@ if IsLobbyLobby() then
         if prestigeV2Offer and (prestigeV2Offer.key ~= key or prestigeV2Offer.prestige ~= p) then
             prestigeV2Offer = nil
         end
-        local ids = prestigeV2Offer and prestigeV2Offer.ids or prestigeV2TalentIds(snapshot.slot.Next_Talents)
+        local ids = prestigeV2TalentIds(snapshot.slot.Next_Talents)
+        prestigeV2Offer = #ids > 0 and {key = key, prestige = p, ids = ids} or nil
         if #ids == 0 then
+            local allowed, blocked = scrollFallbackReady(snapshot)
+            if not allowed then
+                prestigeV2Status("WaitingOffer", blocked)
+                return false
+            end
+            if prestigeConfig.NoScrollMode == true then
+                prestigeV2Status("WaitingOffer", "NoScrollMode: no existing Next_Talents; no Talents request sent")
+                return false
+            end
             -- Scroll fallback is authorized. Prefer any existing offer first.
             -- Only prepare once. In the game UI this returns data, talent IDs,
             -- and scroll count; the second return is the offered list itself.
             -- Lock before invoking: even an interrupted response must not reroll.
             prestigeV2Uncertain = true
-            prestigeV2Pending = {key = key, prestige = p, stage = "offer", sentAt = tick()}
+            prestigeV2Pending = {key = key, prestige = p, stage = "offer", sentAt = tick(), expectNoOffer = true}
             savePrestigeSession()
             prestigeV2Status("Preparing", "Requesting initial Talents once; Scroll fallback enabled")
-            local prepared, offer = pcall(function()
-                return table.pack(GET:InvokeServer("S_Equipment", "Talents"))
-            end)
+            local prepared, offer = prestigeInvoke("Talents", nil, force)
             if prepared then
                 local updated = prestigeV2Slot(offer[1], key)
                 if updated and updated.Progression.Prestige > p then
@@ -9336,14 +9572,13 @@ if IsLobbyLobby() then
                 -- A missing response does not prove that preparation failed.
                 -- Repeating Talents could reroll/spend a Memory Scroll.
                 prestigeV2Uncertain = true
-                prestigeV2Pending = {key = key, prestige = p, stage = "offer", sentAt = tick()}
                 prestigeV2Status("UnconfirmedOffer", "No usable Talents response; automatic rerolls are blocked")
                 Library:Notify("Prestige: talent offer unconfirmed. No reroll or Prestige was repeated.", 6)
                 return false
             end
             prestigeV2Offer = {key = key, prestige = p, ids = ids}
             prestigeV2Uncertain, prestigeV2Pending = false, nil
-            prestigeV2Status("OfferReady", "Scrolls reported: " .. tostring(offer[3]))
+            prestigeV2Status("OfferReady", "Scrolls reported: " .. tostring(prepared and offer[3] or "unreported"))
         end
 
         local talentName
@@ -9369,7 +9604,25 @@ if IsLobbyLobby() then
             prestigeV2Status("WaitingData", readError or "Slot/progression changed before commit")
             return false
         end
-        can, reason = prestigeV2Gate(snapshot)
+        can, reason, detail = prestigeV2Gate(snapshot)
+        if not can then
+            prestigeV2Status("Waiting", detail or reason)
+            getgenv().AstaPrestigeStatus.Reason = reason
+            return false
+        end
+        local latestIds = prestigeV2TalentIds(snapshot.slot.Next_Talents)
+        if #latestIds == 0 then
+            prestigeV2Offer = nil
+            prestigeV2Status("WaitingOffer", "Latest account has no prepared offer; retrying preparation next cycle")
+            return false
+        end
+        talentName = nil
+        for _, id in ipairs(latestIds) do
+            local name = TalentIdToName[id] or TalentIdToName[tonumber(id)]
+            if name and name ~= "Empty" then talentName = name break end
+        end
+        if not talentName then prestigeV2Status("UnknownTalent", "Latest offer IDs could not be resolved") return false end
+        prestigeV2Offer = {key = key, prestige = p, ids = latestIds}
         if not can or prestigeSession.generation ~= prestigeGeneration
             or (not force and not getgenv().PrestigeEnabled) then
             prestigeV2Status("Waiting", reason or "Disabled") return false
@@ -9379,11 +9632,7 @@ if IsLobbyLobby() then
         savePrestigeSession()
         lastPrestigeAttempt = tick()
         prestigeV2Status("Submitting", talentName .. " / " .. boostName)
-        local sent, response = pcall(function()
-            return table.pack(GET:InvokeServer("S_Equipment", "Prestige", {
-                Boosts = boostName, Talents = talentName
-            }))
-        end)
+        local sent, response = prestigeInvoke("Prestige", {Boosts = boostName, Talents = talentName})
         if sent and response.n > 0 and response[1] == false then
             local rejectKey = tostring(key) .. ":" .. tostring(p)
             prestigeRejects[rejectKey] = (prestigeRejects[rejectKey] or 0) + 1
@@ -9421,10 +9670,112 @@ if IsLobbyLobby() then
             if after >= 5 then getgenv().PrestigeEnabled = false end
             return true
         end
-        prestigeV2Status("Unconfirmed", "Request sent once; no confirmed prestige increase yet")
+        prestigeV2Status("Unconfirmed", string.format("No progression increase yet; response=%s, values=%s; reconciling fresh account",
+            sent and tostring(response[1]) or "error", sent and tostring(response.n) or "error"))
         Library:Notify("Prestige not confirmed yet. Duplicate requests and rerolls are blocked.", 6)
         return false
     end
+
+    local function encodePrestigeResume(value)
+        local kind = type(value)
+        if kind == "string" then return string.format("%q", value) end
+        if kind == "number" or kind == "boolean" then return tostring(value) end
+        if kind ~= "table" then error("Unsupported configuration value: " .. kind) end
+        local parts = {}
+        for key, item in pairs(value) do
+            parts[#parts + 1] = "[" .. encodePrestigeResume(key) .. "]=" .. encodePrestigeResume(item)
+        end
+        return "{" .. table.concat(parts, ",") .. "}"
+    end
+    local function rejoinIfPrestigeStuck()
+        if prestigeSession.generation ~= prestigeGeneration or not getgenv().PrestigeEnabled
+            or prestigeConfig.RejoinOnFailure == false or prestigeTeleporting or tick() < prestigeRecoveryAt
+            or workspace:GetAttribute("Map") ~= "Lobby" then return end
+        local snapshot = prestigeV2Snapshot()
+        if not snapshot or prestigeSession.generation ~= prestigeGeneration then return end
+        local pending = prestigeV2Pending
+        if pending and snapshot.key == pending.key and snapshot.slot.Progression.Prestige > pending.prestige then
+            prestigeV2Uncertain, prestigeV2Offer, prestigeV2Pending = false, nil, nil
+            prestigeEligibleSince, prestigeEligibleKey = nil, nil
+            savePrestigeSession()
+            prestigeV2Status("Success", "Prestige increase confirmed by recovery worker")
+            return
+        end
+        if not prestigeV2Gate(snapshot) then
+            prestigeEligibleSince, prestigeEligibleKey = nil, nil
+            return
+        end
+        local identity = tostring(snapshot.key) .. ":" .. tostring(snapshot.slot.Progression.Prestige)
+        if prestigeEligibleKey ~= identity then prestigeEligibleKey, prestigeEligibleSince = identity, tick() end
+        if tick() - prestigeEligibleSince < math.max(45, tonumber(prestigeConfig.RejoinAfter) or 60) then return end
+        local queue = queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport)
+        local sourcePath = "Asta_AOTR_Prestige_AutoResume_" .. tostring(Player.UserId) .. ".luau"
+        if type(queue) ~= "function" or type(writefile) ~= "function"
+            or type(isfile) ~= "function" or not isfile(sourcePath) then
+            lastResortState(snapshot).RejoinUnavailable = true
+            prestigeRecoveryAt = tick() + 30
+            prestigeV2Status("RejoinUnavailable", "Free recovery unavailable; eligible Scroll fallback may run once")
+            return
+        end
+        local resume = table.clone(CONFIG)
+        resume.MainMenu = table.clone(CONFIG.MainMenu or {})
+        resume.MainMenu.Slot = snapshot.key
+        resume.Lobby = table.clone(CONFIG.Lobby)
+        resume.Lobby.Prestige = table.clone(prestigeConfig)
+        resume.Lobby.Prestige.Enabled = true
+        resume.Lobby.Prestige.ForceGold = getgenv().ForceGoldRequirement
+        resume.Lobby.Prestige.Boost = getgenv().SelectedBoost
+        local state = lastResortState(snapshot)
+        state.RejoinFromJob = game.JobId
+        resume.Lobby.Prestige.RecoveryState = table.clone(state)
+        resume.Lobby.Prestige.GoldRequirements = {}
+        for p = 0, 4 do resume.Lobby.Prestige.GoldRequirements[p] = getgenv().PrestigeGoldRequirement[p + 1] end
+        local configPath = "Asta_AOTR_Prestige_ResumeConfig_" .. tostring(Player.UserId) .. ".luau"
+        writefile(configPath, "return " .. encodePrestigeResume(resume))
+        if prestigeSession.generation ~= prestigeGeneration or not getgenv().PrestigeEnabled
+            or Player:GetAttribute("Slot") ~= snapshot.key
+            or Player:GetAttribute("Prestige") ~= snapshot.slot.Progression.Prestige then return end
+        if not prestigeSession.resumeQueued then
+            queue("getgenv().AstaPrestigeResumeProof=" .. string.format("%q", state.Key)
+                .. ";local c,e=loadstring(readfile(" .. string.format("%q", configPath)
+                .. "));assert(c,e);getgenv().AstaPrestigeResumeConfig=c();local f,x=loadstring(readfile("
+                .. string.format("%q", sourcePath) .. "));assert(f,x);f()")
+            prestigeSession.resumeQueued = true
+        end
+        prestigeRecoveryAt, prestigeTeleporting = tick() + 60, true
+        prestigeV2Status("Rejoining", "All requirements verified; recovering stalled Prestige in a new Lobby")
+        local ok, err = pcall(function()
+            game:GetService("TeleportService"):Teleport(14916516914, Player)
+        end)
+        if not ok then
+            prestigeTeleporting = false
+            state.RejoinFailures = (state.RejoinFailures or 0) + 1
+            if state.RejoinFailures >= 2 then state.RejoinUnavailable = true end
+            prestigeV2Status("RejoinError", tostring(err))
+        end
+    end
+    pcall(function()
+        game:GetService("TeleportService").TeleportInitFailed:Connect(function(player, result, message)
+            if player == Player and prestigeSession.generation == prestigeGeneration then
+                prestigeTeleporting = false
+                prestigeRecoveryAt = tick() + 60
+                local state = prestigeConfig.RecoveryState
+                if type(state) == "table" then
+                    state.RejoinFailures = (state.RejoinFailures or 0) + 1
+                    if state.RejoinFailures >= 2 then state.RejoinUnavailable = true end
+                end
+                prestigeV2Status("RejoinError", tostring(message or result))
+            end
+        end)
+    end)
+    task.spawn(function()
+        while prestigeSession.generation == prestigeGeneration do
+            task.wait(5)
+            if prestigeSession.generation ~= prestigeGeneration then break end
+            local ok, err = pcall(rejoinIfPrestigeStuck)
+            if not ok then prestigeV2Status("RejoinError", tostring(err)) end
+        end
+    end)
 
     local function doPrestige(force)
         -- Both the manual button and automatic worker share this same lock.
@@ -9432,18 +9783,22 @@ if IsLobbyLobby() then
             or prestigeSession.generation ~= prestigeGeneration then return false end
         prestigeV2Busy, prestigeSession.busy = true, true
         local ok, result = pcall(prestigeV2Run, force)
+        prestigeV2Busy = false
+        if prestigeSession.generation ~= prestigeGeneration then return false end
         savePrestigeSession()
-        prestigeV2Busy, prestigeSession.busy = false, false
+        prestigeSession.busy = false
         if not ok then prestigeV2Status("Error", tostring(result)) end
         return ok and result == true
     end
 
 
     getgenv().AstaPrestigePreflight = function()
+        if prestigeSession.generation ~= prestigeGeneration then return false, "Worker replaced" end
         -- The mission toggle is registered earlier than this worker. This entry
         -- point is published only after all Prestige controls and locks exist.
         syncFromOptions()
         if not getgenv().PrestigeEnabled then return true, "Auto Prestige disabled" end
+        if prestigeTeleporting then return false, "Waiting for Lobby rejoin" end
         if prestigeV2Busy then return false, "Prestige operation in progress" end
         local confirmed = doPrestige(false)
         local status = getgenv().AstaPrestigeStatus
@@ -9454,14 +9809,14 @@ if IsLobbyLobby() then
         if not status then return false, "Waiting for first Prestige result" end
         if status.Stage == "Success" then return true, status.Message end
         if status.Stage == "Waiting" then
-            local reason = status.Message
+            local reason = status.Reason or status.Message
             if reason == "gold" or reason == "level" or reason == "xp" or reason == "max" then
                 return true, "Prestige not eligible: " .. tostring(reason)
             end
         end
         return false, status.Stage .. ": " .. tostring(status.Message)
     end
-    prestigeV2Status("Initialized", "Worker ready; mission preflight is registered")
+    prestigeV2Status("Initialized", "Existing offer -> bounded retries -> Lobby recovery -> one last-resort Scroll request")
 
     PrestigeGroup:AddButton("Check Prestige Status", function()
         task.spawn(function()
@@ -9512,7 +9867,7 @@ if IsLobbyLobby() then
                 PrestigeRunning = false
             end
 
-            -- slow loop: never faster than 12s hard gap
+            -- Decisions use fresh account data; commit retries have their own cooldown.
             local waitTime = 1
             task.wait(waitTime)
         end
@@ -15322,3 +15677,26 @@ end
 -- Blade attacks are handled by the exact 9-Titan / 0.5s worker above
 -- worker above, including No Movement mode.
 -- ============================================================
+]==========]
+do
+    local players = game:GetService("Players")
+    local deadline = os.clock() + 30
+    while not players.LocalPlayer and os.clock() < deadline do
+        task.wait(0.1)
+    end
+    if not players.LocalPlayer then
+        warn("[Asta] LocalPlayer unavailable after 30s. Run this script in the Roblox client after joining.")
+        return
+    end
+end
+
+
+if type(writefile) == "function" then
+    local player = game:GetService("Players").LocalPlayer
+    local path = "Asta_AOTR_Prestige_AutoResume_" .. tostring(player.UserId) .. ".luau"
+    local ok, err = pcall(writefile, path, source)
+    if not ok then warn("[Prestige] Auto-resume file could not be saved: " .. tostring(err)) end
+end
+local run, err = loadstring(source)
+assert(run, err)
+run()
